@@ -152,7 +152,6 @@
         let gameRunning = false;
         let gameLoop;
         let passengersPickedUp = 0;
-        let passengersForConstruction = 0; // Tracks passengers for construction spawn
         let gameSpeed = 150;
 
         // Construction zone state
@@ -163,6 +162,9 @@
         let constructionFading = false;
         let constructionFadeOpacity = 1;
         let constructionShowCheckmark = false;
+        let constructionCompleted = true; // Tracks if previous zone was completed (starts true so first zone can spawn)
+        let futureConstructionZone = null; // Pre-determined location for next construction zone
+        let passengersUntilConstruction = 7; // Countdown to next construction (starts at 7 after completion)
 
         // Passenger emojis - full figure standing people
         const passengerEmojis = ['🧍', '🧍‍♂️', '🧍‍♀️'];
@@ -170,6 +172,7 @@
         // Audio context for sound effects
         let audioContext = null;
         let coinSoundPlaying = false;
+        let dingDongPlaying = false;
 
         function initAudio() {
             if (!audioContext) {
@@ -209,6 +212,45 @@
             setTimeout(() => {
                 coinSoundPlaying = false;
             }, 100);
+        }
+
+        function playDingDongSound() {
+            if (!audioContext || dingDongPlaying) return;
+
+            dingDongPlaying = true;
+
+            // First tone - "ding" (higher pitch)
+            const oscillator1 = audioContext.createOscillator();
+            const gainNode1 = audioContext.createGain();
+            oscillator1.connect(gainNode1);
+            gainNode1.connect(audioContext.destination);
+            oscillator1.type = 'sine';
+            oscillator1.frequency.setValueAtTime(830.61, audioContext.currentTime); // G#5
+            gainNode1.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode1.gain.linearRampToValueAtTime(0.35, audioContext.currentTime + 0.02);
+            gainNode1.gain.linearRampToValueAtTime(0.25, audioContext.currentTime + 0.15);
+            gainNode1.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
+            oscillator1.start(audioContext.currentTime);
+            oscillator1.stop(audioContext.currentTime + 0.3);
+
+            // Second tone - "dong" (lower pitch, starts slightly after)
+            const oscillator2 = audioContext.createOscillator();
+            const gainNode2 = audioContext.createGain();
+            oscillator2.connect(gainNode2);
+            gainNode2.connect(audioContext.destination);
+            oscillator2.type = 'sine';
+            oscillator2.frequency.setValueAtTime(622.25, audioContext.currentTime + 0.15); // D#5
+            gainNode2.gain.setValueAtTime(0, audioContext.currentTime + 0.15);
+            gainNode2.gain.linearRampToValueAtTime(0.35, audioContext.currentTime + 0.17);
+            gainNode2.gain.linearRampToValueAtTime(0.25, audioContext.currentTime + 0.3);
+            gainNode2.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.5);
+            oscillator2.start(audioContext.currentTime + 0.15);
+            oscillator2.stop(audioContext.currentTime + 0.5);
+
+            // Allow next sound after this one finishes
+            setTimeout(() => {
+                dingDongPlaying = false;
+            }, 400);
         }
 
         // Touch controls
@@ -287,7 +329,6 @@
             busStops = [];
             gameRunning = true;
             passengersPickedUp = 0;
-            passengersForConstruction = 0;
             gameSpeed = 150;
 
             // Reset construction zone
@@ -296,6 +337,9 @@
             constructionFading = false;
             constructionFadeOpacity = 1;
             constructionShowCheckmark = false;
+            constructionCompleted = true;
+            futureConstructionZone = null;
+            passengersUntilConstruction = 7;
             if (constructionBlinkTimer) clearInterval(constructionBlinkTimer);
             constructionBlinkTimer = setInterval(() => {
                 constructionBlinkState = !constructionBlinkState;
@@ -340,19 +384,28 @@
 
         function isOnConstruction(x, y) {
             if (!constructionZone || constructionFading) return false;
-            return x >= constructionZone.x && x < constructionZone.x + 4 &&
-                   y >= constructionZone.y && y < constructionZone.y + 4;
+            return x >= constructionZone.x && x < constructionZone.x + 3 &&
+                   y >= constructionZone.y && y < constructionZone.y + 3;
         }
 
         function spawnConstructionZone() {
             if (constructionZone || constructionFading) return;
 
+            // Use pre-determined future location if available
+            if (futureConstructionZone) {
+                constructionZone = futureConstructionZone;
+                futureConstructionZone = null;
+                constructionPassengerCount = 0;
+                constructionCompleted = false;
+                return;
+            }
+
             let attempts = 0;
             let zone;
             do {
                 zone = {
-                    x: Math.floor(Math.random() * (tileCountX - 4)),
-                    y: Math.floor(Math.random() * (tileCountY - 4))
+                    x: Math.floor(Math.random() * (tileCountX - 3)),
+                    y: Math.floor(Math.random() * (tileCountY - 3))
                 };
                 attempts++;
             } while (isConstructionOverlapping(zone) && attempts < 100);
@@ -360,13 +413,32 @@
             if (attempts < 100) {
                 constructionZone = zone;
                 constructionPassengerCount = 0;
+                constructionCompleted = false;
+            }
+        }
+
+        function pickFutureConstructionLocation() {
+            if (futureConstructionZone) return; // Already picked
+
+            let attempts = 0;
+            let zone;
+            do {
+                zone = {
+                    x: Math.floor(Math.random() * (tileCountX - 3)),
+                    y: Math.floor(Math.random() * (tileCountY - 3))
+                };
+                attempts++;
+            } while (isConstructionOverlapping(zone) && attempts < 100);
+
+            if (attempts < 100) {
+                futureConstructionZone = zone;
             }
         }
 
         function isConstructionOverlapping(zone) {
-            // Check all 4x4 cells of the zone
-            for (let dx = 0; dx < 4; dx++) {
-                for (let dy = 0; dy < 4; dy++) {
+            // Check all 3x3 cells of the zone
+            for (let dx = 0; dx < 3; dx++) {
+                for (let dy = 0; dy < 3; dy++) {
                     const x = zone.x + dx;
                     const y = zone.y + dy;
                     if (isOnBus(x, y) || isOnPassenger(x, y) || isOnBusStop(x, y)) {
@@ -392,6 +464,8 @@
                         constructionZone = null;
                         constructionFading = false;
                         constructionFadeOpacity = 1;
+                        constructionCompleted = true;
+                        passengersUntilConstruction = 7; // Reset countdown for next construction
                     }
                 }, 50);
             }, 500);
@@ -463,7 +537,6 @@
                     score += 10;
                     pickedUp = true;
                     passengersPickedUp++;
-                    passengersForConstruction++;
 
                     // Track passengers for construction zone removal
                     if (constructionZone && !constructionFading) {
@@ -493,10 +566,19 @@
                     spawnPassenger();
                 }
 
-                // Spawn construction zone after 5 passengers (if none active)
-                if (passengersForConstruction >= 5 && !constructionZone && !constructionFading) {
-                    spawnConstructionZone();
-                    passengersForConstruction = 0;
+                // Construction zone spawning logic - only after previous completed AND 7 passengers
+                if (constructionCompleted && !constructionZone && !constructionFading) {
+                    passengersUntilConstruction--;
+
+                    // At 3 passengers remaining, pick the future location
+                    if (passengersUntilConstruction === 3 && !futureConstructionZone) {
+                        pickFutureConstructionLocation();
+                    }
+
+                    // When countdown reaches 0, spawn the construction zone
+                    if (passengersUntilConstruction <= 0) {
+                        spawnConstructionZone();
+                    }
                 }
 
                 spawnBusStop();
@@ -514,6 +596,7 @@
                             bus.pop();
                         }
                         score += dropOff * 15;
+                        playDingDongSound();
                     }
                     return false;
                 }
@@ -545,6 +628,45 @@
                 ctx.stroke();
             }
 
+            // Draw construction countdown warning (if future zone is picked and countdown is 3 or less)
+            if (futureConstructionZone && passengersUntilConstruction <= 3 && passengersUntilConstruction > 0) {
+                const zoneX = futureConstructionZone.x * gridSize;
+                const zoneY = futureConstructionZone.y * gridSize;
+                const zoneSize = 3 * gridSize;
+
+                // Choose color based on countdown
+                let bgColor;
+                if (passengersUntilConstruction === 3) {
+                    bgColor = 'rgba(255, 200, 0, 0.6)'; // Yellow/caution
+                } else if (passengersUntilConstruction === 2) {
+                    bgColor = 'rgba(255, 140, 0, 0.7)'; // Orange
+                } else {
+                    bgColor = 'rgba(255, 60, 60, 0.8)'; // Red
+                }
+
+                // Draw full 3x3 highlighted background
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(zoneX, zoneY, zoneSize, zoneSize);
+
+                // Draw border around the zone
+                ctx.strokeStyle = passengersUntilConstruction === 1 ? '#ff3333' :
+                                  passengersUntilConstruction === 2 ? '#ff8c00' : '#ffcc00';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(zoneX + 1.5, zoneY + 1.5, zoneSize - 3, zoneSize - 3);
+
+                // Draw countdown number in center
+                ctx.font = 'bold 40px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#fff';
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 3;
+                const centerX = zoneX + zoneSize / 2;
+                const centerY = zoneY + zoneSize / 2;
+                ctx.strokeText(passengersUntilConstruction.toString(), centerX, centerY);
+                ctx.fillText(passengersUntilConstruction.toString(), centerX, centerY);
+            }
+
             // Draw construction zone (if active)
             if (constructionZone) {
                 const constructionEmojis = ['🚧', '🏗️', '⚠️'];
@@ -552,26 +674,26 @@
 
                 if (constructionShowCheckmark) {
                     // Show green checkmark
-                    ctx.font = '80px sans-serif';
+                    ctx.font = '60px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    const centerX = (constructionZone.x + 2) * gridSize;
-                    const centerY = (constructionZone.y + 2) * gridSize;
+                    const centerX = (constructionZone.x + 1.5) * gridSize;
+                    const centerY = (constructionZone.y + 1.5) * gridSize;
                     ctx.fillText('✅', centerX, centerY);
                 } else {
-                    // Draw 4x4 construction zone with mixed emojis
+                    // Draw 3x3 construction zone with mixed emojis
                     ctx.font = '20px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
 
-                    for (let dx = 0; dx < 4; dx++) {
-                        for (let dy = 0; dy < 4; dy++) {
+                    for (let dx = 0; dx < 3; dx++) {
+                        for (let dy = 0; dy < 3; dy++) {
                             const x = (constructionZone.x + dx) * gridSize + gridSize / 2;
                             const y = (constructionZone.y + dy) * gridSize + gridSize / 2;
 
                             // Blinking effect - alternate visibility
                             if (constructionBlinkState || (dx + dy) % 2 === 0) {
-                                const emojiIndex = (dx + dy * 4) % constructionEmojis.length;
+                                const emojiIndex = (dx + dy * 3) % constructionEmojis.length;
                                 ctx.fillText(constructionEmojis[emojiIndex], x, y);
                             }
                         }
