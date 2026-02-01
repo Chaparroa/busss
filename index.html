@@ -32,7 +32,7 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 10px;
-            max-width: 600px;
+            max-width: 375px;
             margin-left: auto;
             margin-right: auto;
             padding: 0 10px;
@@ -57,7 +57,7 @@
             display: block;
             margin: 0 auto;
             max-width: 100vw;
-            max-height: 80vh;
+            max-height: 85vh;
         }
         
         #gameOver {
@@ -132,14 +132,16 @@
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
-        
-        // Set canvas size
-        const gridSize = 20;
-        const canvasSize = Math.min(window.innerWidth - 20, window.innerHeight - 150, 600);
-        canvas.width = canvasSize;
-        canvas.height = canvasSize;
-        const tileCount = Math.floor(canvasSize / gridSize);
-        
+
+        // Set canvas size - portrait orientation for mobile
+        const gridSize = 25;
+        const canvasWidth = 375;
+        const canvasHeight = 625;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        const tileCountX = Math.floor(canvasWidth / gridSize);
+        const tileCountY = Math.floor(canvasHeight / gridSize);
+
         // Game state
         let bus = [];
         let direction = { x: 1, y: 0 };
@@ -150,7 +152,20 @@
         let gameRunning = false;
         let gameLoop;
         let passengersPickedUp = 0;
+        let passengersForConstruction = 0; // Tracks passengers for construction spawn
         let gameSpeed = 150;
+
+        // Construction zone state
+        let constructionZone = null;
+        let constructionBlinkState = true;
+        let constructionBlinkTimer = null;
+        let constructionPassengerCount = 0; // Passengers picked up since construction appeared
+        let constructionFading = false;
+        let constructionFadeOpacity = 1;
+        let constructionShowCheckmark = false;
+
+        // Passenger emojis - full figure standing people
+        const passengerEmojis = ['🧍', '🧍‍♂️', '🧍‍♀️'];
         
         // Audio context for sound effects
         let audioContext = null;
@@ -262,8 +277,8 @@
         
         function initGame() {
             bus = [
-                { x: Math.floor(tileCount / 2), y: Math.floor(tileCount / 2) },
-                { x: Math.floor(tileCount / 2) - 1, y: Math.floor(tileCount / 2) }
+                { x: Math.floor(tileCountX / 2), y: Math.floor(tileCountY / 2) },
+                { x: Math.floor(tileCountX / 2) - 1, y: Math.floor(tileCountY / 2) }
             ];
             direction = { x: 1, y: 0 };
             nextDirection = { x: 1, y: 0 };
@@ -272,48 +287,135 @@
             busStops = [];
             gameRunning = true;
             passengersPickedUp = 0;
+            passengersForConstruction = 0;
             gameSpeed = 150;
-            
-            spawnPassenger();
-            
+
+            // Reset construction zone
+            constructionZone = null;
+            constructionPassengerCount = 0;
+            constructionFading = false;
+            constructionFadeOpacity = 1;
+            constructionShowCheckmark = false;
+            if (constructionBlinkTimer) clearInterval(constructionBlinkTimer);
+            constructionBlinkTimer = setInterval(() => {
+                constructionBlinkState = !constructionBlinkState;
+            }, 300);
+
+            // Spawn 3-4 passengers initially
+            const initialPassengers = 3 + Math.floor(Math.random() * 2);
+            for (let i = 0; i < initialPassengers; i++) {
+                spawnPassenger();
+            }
+
             document.getElementById('gameOver').style.display = 'none';
             updateScore();
-            
+
             if (gameLoop) clearInterval(gameLoop);
             gameLoop = setInterval(update, gameSpeed);
         }
         
         function spawnPassenger() {
-            const bodyColors = ['#0072BC', '#EB131B', '#58A738']; // blue, red, green
-            const headColors = ['#F5DEB3', '#E8C9A1', '#D4A76A']; // light, medium, dark beige
-            
             let newPassenger;
+            let attempts = 0;
             do {
                 newPassenger = {
-                    x: Math.floor(Math.random() * tileCount),
-                    y: Math.floor(Math.random() * tileCount),
-                    type: Math.floor(Math.random() * 3), // 0, 1, or 2 for three variations
-                    bodyColor: bodyColors[Math.floor(Math.random() * bodyColors.length)],
-                    headColor: headColors[Math.floor(Math.random() * headColors.length)]
+                    x: Math.floor(Math.random() * tileCountX),
+                    y: Math.floor(Math.random() * tileCountY),
+                    emoji: passengerEmojis[Math.floor(Math.random() * passengerEmojis.length)]
                 };
-            } while (isOnBus(newPassenger.x, newPassenger.y));
-            
-            passengers.push(newPassenger);
+                attempts++;
+            } while ((isOnBus(newPassenger.x, newPassenger.y) ||
+                     isOnPassenger(newPassenger.x, newPassenger.y) ||
+                     isOnBusStop(newPassenger.x, newPassenger.y) ||
+                     isOnConstruction(newPassenger.x, newPassenger.y)) && attempts < 100);
+
+            if (attempts < 100) {
+                passengers.push(newPassenger);
+            }
+        }
+
+        function isOnBusStop(x, y) {
+            return busStops.some(stop => stop.x === x && stop.y === y);
+        }
+
+        function isOnConstruction(x, y) {
+            if (!constructionZone || constructionFading) return false;
+            return x >= constructionZone.x && x < constructionZone.x + 4 &&
+                   y >= constructionZone.y && y < constructionZone.y + 4;
+        }
+
+        function spawnConstructionZone() {
+            if (constructionZone || constructionFading) return;
+
+            let attempts = 0;
+            let zone;
+            do {
+                zone = {
+                    x: Math.floor(Math.random() * (tileCountX - 4)),
+                    y: Math.floor(Math.random() * (tileCountY - 4))
+                };
+                attempts++;
+            } while (isConstructionOverlapping(zone) && attempts < 100);
+
+            if (attempts < 100) {
+                constructionZone = zone;
+                constructionPassengerCount = 0;
+            }
+        }
+
+        function isConstructionOverlapping(zone) {
+            // Check all 4x4 cells of the zone
+            for (let dx = 0; dx < 4; dx++) {
+                for (let dy = 0; dy < 4; dy++) {
+                    const x = zone.x + dx;
+                    const y = zone.y + dy;
+                    if (isOnBus(x, y) || isOnPassenger(x, y) || isOnBusStop(x, y)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function startConstructionFade() {
+            constructionShowCheckmark = true;
+            constructionFading = true;
+
+            // Show checkmark for 0.5 seconds
+            setTimeout(() => {
+                constructionShowCheckmark = false;
+                // Start fade out
+                const fadeInterval = setInterval(() => {
+                    constructionFadeOpacity -= 0.1;
+                    if (constructionFadeOpacity <= 0) {
+                        clearInterval(fadeInterval);
+                        constructionZone = null;
+                        constructionFading = false;
+                        constructionFadeOpacity = 1;
+                    }
+                }, 50);
+            }, 500);
         }
         
         function spawnBusStop() {
             // Only spawn if 7 passengers picked up, bus is long enough, and max 2 stops
             if (passengersPickedUp >= 7 && bus.length > 3 && busStops.length < 2) {
                 let newStop;
+                let attempts = 0;
                 do {
                     newStop = {
-                        x: Math.floor(Math.random() * tileCount),
-                        y: Math.floor(Math.random() * tileCount)
+                        x: Math.floor(Math.random() * tileCountX),
+                        y: Math.floor(Math.random() * tileCountY)
                     };
-                } while (isOnBus(newStop.x, newStop.y) || isOnPassenger(newStop.x, newStop.y));
-                
-                busStops.push(newStop);
-                passengersPickedUp = 0; // Reset counter after spawning stop
+                    attempts++;
+                } while ((isOnBus(newStop.x, newStop.y) ||
+                         isOnPassenger(newStop.x, newStop.y) ||
+                         isOnConstruction(newStop.x, newStop.y)) && attempts < 100);
+
+                if (attempts < 100) {
+                    busStops.push(newStop);
+                    passengersPickedUp = 0; // Reset counter after spawning stop
+                }
             }
         }
         
@@ -327,26 +429,32 @@
         
         function update() {
             if (!gameRunning) return;
-            
+
             direction = { ...nextDirection };
-            
+
             // Move bus
             const head = { x: bus[0].x + direction.x, y: bus[0].y + direction.y };
-            
-            // Wrap around walls
-            if (head.x < 0) head.x = tileCount - 1;
-            if (head.x >= tileCount) head.x = 0;
-            if (head.y < 0) head.y = tileCount - 1;
-            if (head.y >= tileCount) head.y = 0;
-            
+
+            // Wrap around walls (portrait canvas)
+            if (head.x < 0) head.x = tileCountX - 1;
+            if (head.x >= tileCountX) head.x = 0;
+            if (head.y < 0) head.y = tileCountY - 1;
+            if (head.y >= tileCountY) head.y = 0;
+
             // Check collision with self
             if (isOnBus(head.x, head.y)) {
                 endGame();
                 return;
             }
-            
+
+            // Check collision with construction zone
+            if (isOnConstruction(head.x, head.y)) {
+                endGame();
+                return;
+            }
+
             bus.unshift(head);
-            
+
             // Check passenger pickup
             let pickedUp = false;
             passengers = passengers.filter(passenger => {
@@ -355,27 +463,47 @@
                     score += 10;
                     pickedUp = true;
                     passengersPickedUp++;
-                    
+                    passengersForConstruction++;
+
+                    // Track passengers for construction zone removal
+                    if (constructionZone && !constructionFading) {
+                        constructionPassengerCount++;
+                        if (constructionPassengerCount >= 4) {
+                            startConstructionFade();
+                        }
+                    }
+
                     // Speed up every 100 points
                     if (Math.floor(score / 100) > Math.floor(oldScore / 100)) {
                         gameSpeed = Math.max(50, gameSpeed - 15); // Don't go faster than 50ms
                         clearInterval(gameLoop);
                         gameLoop = setInterval(update, gameSpeed);
                     }
-                    
+
                     return false;
                 }
                 return true;
             });
-            
+
             if (pickedUp) {
                 playCoinSound();
-                spawnPassenger();
+
+                // Maintain 3-4 passengers on screen
+                while (passengers.length < 3) {
+                    spawnPassenger();
+                }
+
+                // Spawn construction zone after 5 passengers (if none active)
+                if (passengersForConstruction >= 5 && !constructionZone && !constructionFading) {
+                    spawnConstructionZone();
+                    passengersForConstruction = 0;
+                }
+
                 spawnBusStop();
             } else {
                 bus.pop(); // Remove tail if no passenger picked up
             }
-            
+
             // Check bus stop
             busStops = busStops.filter(stop => {
                 if (stop.x === head.x && stop.y === head.y) {
@@ -391,7 +519,7 @@
                 }
                 return true;
             });
-            
+
             updateScore();
             draw();
         }
@@ -400,23 +528,59 @@
             // Clear canvas
             ctx.fillStyle = '#1a1a1a';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            // Draw grid
+
+            // Draw grid (portrait canvas)
             ctx.strokeStyle = '#2a2a2a';
             ctx.lineWidth = 1;
-            for (let i = 0; i <= tileCount; i++) {
+            for (let i = 0; i <= tileCountX; i++) {
                 ctx.beginPath();
                 ctx.moveTo(i * gridSize, 0);
                 ctx.lineTo(i * gridSize, canvas.height);
                 ctx.stroke();
-                
+            }
+            for (let i = 0; i <= tileCountY; i++) {
                 ctx.beginPath();
                 ctx.moveTo(0, i * gridSize);
                 ctx.lineTo(canvas.width, i * gridSize);
                 ctx.stroke();
             }
-            
-            // Draw bus
+
+            // Draw construction zone (if active)
+            if (constructionZone) {
+                const constructionEmojis = ['🚧', '🏗️', '⚠️'];
+                ctx.globalAlpha = constructionFadeOpacity;
+
+                if (constructionShowCheckmark) {
+                    // Show green checkmark
+                    ctx.font = '80px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const centerX = (constructionZone.x + 2) * gridSize;
+                    const centerY = (constructionZone.y + 2) * gridSize;
+                    ctx.fillText('✅', centerX, centerY);
+                } else {
+                    // Draw 4x4 construction zone with mixed emojis
+                    ctx.font = '20px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+
+                    for (let dx = 0; dx < 4; dx++) {
+                        for (let dy = 0; dy < 4; dy++) {
+                            const x = (constructionZone.x + dx) * gridSize + gridSize / 2;
+                            const y = (constructionZone.y + dy) * gridSize + gridSize / 2;
+
+                            // Blinking effect - alternate visibility
+                            if (constructionBlinkState || (dx + dy) % 2 === 0) {
+                                const emojiIndex = (dx + dy * 4) % constructionEmojis.length;
+                                ctx.fillText(constructionEmojis[emojiIndex], x, y);
+                            }
+                        }
+                    }
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            // Draw bus (pixel art style - kept as-is)
             bus.forEach((segment, index) => {
                 if (index === 0) {
                     // Bus head (front) with windshield and bumper
@@ -427,23 +591,23 @@
                         gridSize - 2,
                         gridSize - 2
                     );
-                    
+
                     // Blue windshield (top third)
                     ctx.fillStyle = '#33CCFF';
                     ctx.fillRect(
-                        segment.x * gridSize + 1,
-                        segment.y * gridSize + 1,
-                        gridSize - 2,
-                        (gridSize - 2) / 3
+                        segment.x * gridSize + 2,
+                        segment.y * gridSize + 2,
+                        gridSize - 4,
+                        (gridSize - 4) / 3
                     );
-                    
+
                     // Gray bumper (bottom quarter)
                     ctx.fillStyle = '#ADB8BF';
                     ctx.fillRect(
-                        segment.x * gridSize + 1,
-                        segment.y * gridSize + gridSize - 1 - (gridSize - 2) / 4,
-                        gridSize - 2,
-                        (gridSize - 2) / 4
+                        segment.x * gridSize + 2,
+                        segment.y * gridSize + gridSize - 2 - (gridSize - 4) / 4,
+                        gridSize - 4,
+                        (gridSize - 4) / 4
                     );
                 } else if (index === bus.length - 1) {
                     // Bus back with gray rectangle on bottom third
@@ -454,14 +618,14 @@
                         gridSize - 2,
                         gridSize - 2
                     );
-                    
+
                     // Gray rectangle on bottom third
                     ctx.fillStyle = '#ADB8BF';
                     ctx.fillRect(
-                        segment.x * gridSize + 1,
-                        segment.y * gridSize + gridSize - 1 - (gridSize - 2) / 3,
-                        gridSize - 2,
-                        (gridSize - 2) / 3
+                        segment.x * gridSize + 2,
+                        segment.y * gridSize + gridSize - 2 - (gridSize - 4) / 3,
+                        gridSize - 4,
+                        (gridSize - 4) / 3
                     );
                 } else {
                     // Middle bus segments
@@ -472,79 +636,42 @@
                         gridSize - 2,
                         gridSize - 2
                     );
-                    
-                    // Add blue windows to make it look like a bus
+
+                    // Add blue windows to make it look like a bus (adjusted for 25px grid)
                     ctx.fillStyle = '#33CCFF';
                     ctx.fillRect(
-                        segment.x * gridSize + 4,
-                        segment.y * gridSize + 4,
-                        4,
-                        4
+                        segment.x * gridSize + 5,
+                        segment.y * gridSize + 5,
+                        5,
+                        5
                     );
                     ctx.fillRect(
-                        segment.x * gridSize + gridSize - 8,
-                        segment.y * gridSize + 4,
-                        4,
-                        4
+                        segment.x * gridSize + gridSize - 10,
+                        segment.y * gridSize + 5,
+                        5,
+                        5
                     );
                 }
             });
-            
-            // Draw passengers (three variations with colored heads and bodies)
+
+            // Draw passengers using emojis
+            ctx.font = '20px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
             passengers.forEach(passenger => {
-                const px = passenger.x * gridSize;
-                const py = passenger.y * gridSize;
-                
-                if (passenger.type === 0) {
-                    // Type 0: Tall person - small head, larger body
-                    ctx.fillStyle = passenger.headColor;
-                    ctx.fillRect(px + 7, py + 3, 6, 5); // head
-                    ctx.fillStyle = passenger.bodyColor;
-                    ctx.fillRect(px + 5, py + 9, 10, 9); // body
-                } else if (passenger.type === 1) {
-                    // Type 1: Wide person - wider body
-                    ctx.fillStyle = passenger.headColor;
-                    ctx.fillRect(px + 7, py + 4, 6, 5); // head
-                    ctx.fillStyle = passenger.bodyColor;
-                    ctx.fillRect(px + 4, py + 10, 12, 8); // body
-                } else {
-                    // Type 2: Short person - similar size head and body
-                    ctx.fillStyle = passenger.headColor;
-                    ctx.fillRect(px + 7, py + 5, 6, 6); // head
-                    ctx.fillStyle = passenger.bodyColor;
-                    ctx.fillRect(px + 6, py + 12, 8, 6); // body
-                }
+                const px = passenger.x * gridSize + gridSize / 2;
+                const py = passenger.y * gridSize + gridSize / 2;
+                ctx.fillText(passenger.emoji, px, py);
             });
-            
-            // Draw bus stops with circle and M logo
+
+            // Draw bus stops using 🚏 emoji
+            ctx.font = '22px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
             busStops.forEach(stop => {
-                // Outer square
-                ctx.fillStyle = '#0072BC';
-                ctx.fillRect(
-                    stop.x * gridSize + 2,
-                    stop.y * gridSize + 2,
-                    gridSize - 4,
-                    gridSize - 4
-                );
-                
-                // Inner circle
-                ctx.fillStyle = '#fff';
-                ctx.beginPath();
-                ctx.arc(
-                    stop.x * gridSize + gridSize / 2,
-                    stop.y * gridSize + gridSize / 2,
-                    gridSize / 3,
-                    0,
-                    Math.PI * 2
-                );
-                ctx.fill();
-                
-                // M letter
-                ctx.fillStyle = '#0072BC';
-                ctx.font = 'bold 12px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('M', stop.x * gridSize + gridSize / 2, stop.y * gridSize + gridSize / 2);
+                const sx = stop.x * gridSize + gridSize / 2;
+                const sy = stop.y * gridSize + gridSize / 2;
+                ctx.fillText('🚏', sx, sy);
             });
         }
         
@@ -555,6 +682,7 @@
         function endGame() {
             gameRunning = false;
             clearInterval(gameLoop);
+            if (constructionBlinkTimer) clearInterval(constructionBlinkTimer);
             
             // Save high scores
             let highScores = JSON.parse(localStorage.getItem('metroHighScores') || '[]');
