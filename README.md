@@ -49,13 +49,13 @@ Inspired by the classic Snake game and the daily experience of waiting for the b
 
 ## License
 
-This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.
+This work is licensed under a [Creative Commons Attribution-NonCommercial 4.0 International License](https://creativecommons.org/licenses/by-nc/4.0/).
 What this means:
 
-✅ You can share and adapt this game
-✅ You must give appropriate credit
-❌ You cannot use it for commercial purposes
-✅ You can remix and build upon it (like making versions for other cities!)
+- ✅ You can share and adapt this game
+- ✅ You must give appropriate credit
+- ❌ You cannot use it for commercial purposes
+- ✅ You can remix and build upon it (like making versions for other cities!)
 
 Please credit: Alex Chaparro / BUSSS Game
 ---
