@@ -152,12 +152,57 @@
         let passengersPickedUp = 0;
         let gameSpeed = 150;
         
+        // Audio context for sound effects
+        let audioContext = null;
+        let coinSoundPlaying = false;
+
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }
+
+        function playCoinSound() {
+            if (!audioContext || coinSoundPlaying) return;
+
+            coinSoundPlaying = true;
+
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            // Create a pleasant coin chime effect
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(987.77, audioContext.currentTime); // B5
+            oscillator.frequency.setValueAtTime(1318.51, audioContext.currentTime + 0.08); // E6
+
+            // Quick fade in and out for a clean sound
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.02);
+            gainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 0.08);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.15);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.15);
+
+            // Allow next sound after this one finishes
+            setTimeout(() => {
+                coinSoundPlaying = false;
+            }, 100);
+        }
+
         // Touch controls
         let touchStartX = 0;
         let touchStartY = 0;
         
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
+            initAudio();
             touchStartX = e.touches[0].clientX;
             touchStartY = e.touches[0].clientY;
         }, { passive: false });
@@ -196,8 +241,9 @@
         
         // Keyboard controls for desktop testing
         document.addEventListener('keydown', (e) => {
+            initAudio();
             if (!gameRunning) return;
-            
+
             switch(e.key) {
                 case 'ArrowUp':
                     if (direction.y === 0) nextDirection = { x: 0, y: -1 };
@@ -323,6 +369,7 @@
             });
             
             if (pickedUp) {
+                playCoinSound();
                 spawnPassenger();
                 spawnBusStop();
             } else {
