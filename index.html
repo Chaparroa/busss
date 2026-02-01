@@ -184,7 +184,14 @@
         }
 
         function playCoinSound() {
+            // Ensure audio context is initialized
+            if (!audioContext) initAudio();
             if (!audioContext || coinSoundPlaying) return;
+
+            // Resume audio context if suspended (browser autoplay policy)
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
 
             coinSoundPlaying = true;
 
@@ -215,7 +222,14 @@
         }
 
         function playDingDongSound() {
+            // Ensure audio context is initialized
+            if (!audioContext) initAudio();
             if (!audioContext || dingDongPlaying) return;
+
+            // Resume audio context if suspended (browser autoplay policy)
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
 
             dingDongPlaying = true;
 
