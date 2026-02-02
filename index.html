@@ -120,16 +120,16 @@
         }
 
         #startScreen img {
-            max-width: 90%;
-            max-height: 50vh;
-            border: 4px solid #E16710;
-            border-radius: 8px;
+            max-width: 98%;
+            max-height: 58vh;
+            border: none;
+            border-radius: 0;
         }
 
         #startInstructions {
-            margin-top: 20px;
+            margin-top: 15px;
             text-align: left;
-            padding: 15px 20px;
+            padding: 12px 18px;
             background: rgba(225, 103, 16, 0.1);
             border: 2px solid #E16710;
             border-radius: 8px;
@@ -137,13 +137,13 @@
         }
 
         #startInstructions p {
-            margin: 8px 0;
-            font-size: 16px;
+            margin: 6px 0;
+            font-size: 15px;
             color: #fff;
         }
 
         #tapToStart {
-            margin-top: 25px;
+            margin-top: 15px;
             padding: 20px 50px;
             font-size: 28px;
             background: #E16710;
@@ -198,11 +198,23 @@
         const ctx = canvas.getContext('2d');
 
         // Set canvas size - portrait orientation for mobile
+        // Hi-DPI support for crisp rendering on retina displays
+        const dpr = window.devicePixelRatio || 1;
         const gridSize = 25;
         const canvasWidth = 375;
         const canvasHeight = 625;
-        canvas.width = canvasWidth;
-        canvas.height = canvasHeight;
+
+        // Set actual canvas dimensions scaled by device pixel ratio
+        canvas.width = canvasWidth * dpr;
+        canvas.height = canvasHeight * dpr;
+
+        // Set CSS display size (visual size on screen)
+        canvas.style.width = canvasWidth + 'px';
+        canvas.style.height = canvasHeight + 'px';
+
+        // Scale context to match device pixel ratio for crisp rendering
+        ctx.scale(dpr, dpr);
+
         const tileCountX = Math.floor(canvasWidth / gridSize);
         const tileCountY = Math.floor(canvasHeight / gridSize);
 
@@ -220,8 +232,6 @@
 
         // Construction zone state
         let constructionZone = null;
-        let constructionBlinkState = true;
-        let constructionBlinkTimer = null;
         let constructionPassengerCount = 0; // Passengers picked up since construction appeared
         let constructionFading = false;
         let constructionFadeOpacity = 1;
@@ -237,13 +247,23 @@
         let audioContext = null;
         let coinSoundPlaying = false;
         let dingDongPlaying = false;
+        let audioInitialized = false;
 
         function initAudio() {
             if (!audioContext) {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.warn('Web Audio API not supported');
+                    return;
+                }
             }
             if (audioContext.state === 'suspended') {
-                audioContext.resume();
+                audioContext.resume().then(() => {
+                    audioInitialized = true;
+                }).catch(e => console.warn('Audio resume failed:', e));
+            } else {
+                audioInitialized = true;
             }
         }
 
@@ -394,6 +414,24 @@
                     break;
             }
         });
+
+        // Mouse controls for desktop - initialize audio and handle clicks
+        canvas.addEventListener('mousedown', (e) => {
+            initAudio();
+        });
+
+        canvas.addEventListener('click', (e) => {
+            initAudio();
+        });
+
+        // Also initialize audio on any document interaction (for desktop browsers)
+        document.addEventListener('click', () => {
+            initAudio();
+        }, { once: true });
+
+        document.addEventListener('mousedown', () => {
+            initAudio();
+        }, { once: true });
         
         function initGame() {
             bus = [
@@ -418,10 +456,6 @@
             constructionCompleted = true;
             futureConstructionZone = null;
             passengersUntilConstruction = 7;
-            if (constructionBlinkTimer) clearInterval(constructionBlinkTimer);
-            constructionBlinkTimer = setInterval(() => {
-                constructionBlinkState = !constructionBlinkState;
-            }, 300);
 
             // Spawn 3-4 passengers initially
             const initialPassengers = 3 + Math.floor(Math.random() * 2);
@@ -696,9 +730,9 @@
         }
         
         function draw() {
-            // Clear canvas
+            // Clear canvas (use logical dimensions, not scaled canvas dimensions)
             ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
             // Draw grid (portrait canvas)
             ctx.strokeStyle = '#2a2a2a';
@@ -706,13 +740,13 @@
             for (let i = 0; i <= tileCountX; i++) {
                 ctx.beginPath();
                 ctx.moveTo(i * gridSize, 0);
-                ctx.lineTo(i * gridSize, canvas.height);
+                ctx.lineTo(i * gridSize, canvasHeight);
                 ctx.stroke();
             }
             for (let i = 0; i <= tileCountY; i++) {
                 ctx.beginPath();
                 ctx.moveTo(0, i * gridSize);
-                ctx.lineTo(canvas.width, i * gridSize);
+                ctx.lineTo(canvasWidth, i * gridSize);
                 ctx.stroke();
             }
 
@@ -747,18 +781,18 @@
                 const centerY = zoneY + zoneHeight / 2;
 
                 // Draw "Closure in" text above the number
-                ctx.font = 'bold 14px sans-serif';
+                ctx.font = 'bold 16px sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = '#fff';
                 ctx.strokeStyle = '#000';
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 3;
                 ctx.strokeText('Closure in', centerX, centerY - 20);
                 ctx.fillText('Closure in', centerX, centerY - 20);
 
                 // Draw countdown number in center
-                ctx.font = 'bold 40px sans-serif';
-                ctx.lineWidth = 3;
+                ctx.font = 'bold 44px sans-serif';
+                ctx.lineWidth = 4;
                 ctx.strokeText(passengersUntilConstruction.toString(), centerX, centerY + 12);
                 ctx.fillText(passengersUntilConstruction.toString(), centerX, centerY + 12);
             }
@@ -778,7 +812,7 @@
 
                 if (constructionShowCheckmark) {
                     // Show green checkmark
-                    ctx.font = '60px sans-serif';
+                    ctx.font = '72px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
                     const centerX = (constructionZone.x + 2) * gridSize;
@@ -786,7 +820,7 @@
                     ctx.fillText('✅', centerX, centerY);
                 } else {
                     // Draw 4x3 construction zone with specific emoji layout
-                    ctx.font = '20px sans-serif';
+                    ctx.font = '24px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
 
@@ -794,11 +828,7 @@
                         for (let dx = 0; dx < 4; dx++) {
                             const x = (constructionZone.x + dx) * gridSize + gridSize / 2;
                             const y = (constructionZone.y + dy) * gridSize + gridSize / 2;
-
-                            // Blinking effect - alternate visibility
-                            if (constructionBlinkState || (dx + dy) % 2 === 0) {
-                                ctx.fillText(constructionLayout[dy][dx], x, y);
-                            }
+                            ctx.fillText(constructionLayout[dy][dx], x, y);
                         }
                     }
                 }
@@ -880,7 +910,7 @@
             });
 
             // Draw passengers using emojis
-            ctx.font = '20px sans-serif';
+            ctx.font = '24px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             passengers.forEach(passenger => {
@@ -890,7 +920,7 @@
             });
 
             // Draw bus stops using 🚏 emoji
-            ctx.font = '22px sans-serif';
+            ctx.font = '26px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             busStops.forEach(stop => {
@@ -907,7 +937,6 @@
         function endGame() {
             gameRunning = false;
             clearInterval(gameLoop);
-            if (constructionBlinkTimer) clearInterval(constructionBlinkTimer);
             
             // Save high scores
             let highScores = JSON.parse(localStorage.getItem('metroHighScores') || '[]');
