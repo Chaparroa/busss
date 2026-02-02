@@ -105,21 +105,85 @@
             color: #ffaa00;
         }
         
-        #instructions {
-            margin-top: 10px;
-            font-size: 14px;
-            color: #888;
+        #startScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        #startScreen img {
+            max-width: 90%;
+            max-height: 50vh;
+            border: 4px solid #E16710;
+            border-radius: 8px;
+        }
+
+        #startInstructions {
+            margin-top: 20px;
+            text-align: left;
+            padding: 15px 20px;
+            background: rgba(225, 103, 16, 0.1);
+            border: 2px solid #E16710;
+            border-radius: 8px;
+            max-width: 350px;
+        }
+
+        #startInstructions p {
+            margin: 8px 0;
+            font-size: 16px;
+            color: #fff;
+        }
+
+        #tapToStart {
+            margin-top: 25px;
+            padding: 20px 50px;
+            font-size: 28px;
+            background: #E16710;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            border-radius: 8px;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        #tapToStart:active {
+            background: #c75509;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
         }
     </style>
 </head>
 <body>
+    <div id="startScreen">
+        <img src="cover-art-busss.png" alt="BUSSS Cover Art">
+        <div id="startInstructions">
+            <p>🚌 Swipe to change direction</p>
+            <p>🧍 Pick up passengers</p>
+            <p>🚏 Drop off at bus stops to shrink bus</p>
+            <p>🚧 Avoid construction zones</p>
+        </div>
+        <button id="tapToStart">TAP TO START</button>
+    </div>
+
     <div id="gameContainer">
         <div id="header">
             <div id="title">BUSSS</div>
             <div id="score">SCORE: 0</div>
         </div>
         <canvas id="canvas"></canvas>
-        <div id="instructions">Swipe to change direction • Pick up passengers • Drop off at stops</div>
     </div>
     
     <div id="gameOver">
@@ -385,7 +449,8 @@
             } while ((isOnBus(newPassenger.x, newPassenger.y) ||
                      isOnPassenger(newPassenger.x, newPassenger.y) ||
                      isOnBusStop(newPassenger.x, newPassenger.y) ||
-                     isOnConstruction(newPassenger.x, newPassenger.y)) && attempts < 100);
+                     isOnConstruction(newPassenger.x, newPassenger.y) ||
+                     isOnFutureConstruction(newPassenger.x, newPassenger.y)) && attempts < 100);
 
             if (attempts < 100) {
                 passengers.push(newPassenger);
@@ -398,8 +463,14 @@
 
         function isOnConstruction(x, y) {
             if (!constructionZone || constructionFading) return false;
-            return x >= constructionZone.x && x < constructionZone.x + 3 &&
+            return x >= constructionZone.x && x < constructionZone.x + 4 &&
                    y >= constructionZone.y && y < constructionZone.y + 3;
+        }
+
+        function isOnFutureConstruction(x, y) {
+            if (!futureConstructionZone) return false;
+            return x >= futureConstructionZone.x && x < futureConstructionZone.x + 4 &&
+                   y >= futureConstructionZone.y && y < futureConstructionZone.y + 3;
         }
 
         function spawnConstructionZone() {
@@ -418,7 +489,7 @@
             let zone;
             do {
                 zone = {
-                    x: Math.floor(Math.random() * (tileCountX - 3)),
+                    x: Math.floor(Math.random() * (tileCountX - 4)),
                     y: Math.floor(Math.random() * (tileCountY - 3))
                 };
                 attempts++;
@@ -438,7 +509,7 @@
             let zone;
             do {
                 zone = {
-                    x: Math.floor(Math.random() * (tileCountX - 3)),
+                    x: Math.floor(Math.random() * (tileCountX - 4)),
                     y: Math.floor(Math.random() * (tileCountY - 3))
                 };
                 attempts++;
@@ -450,8 +521,8 @@
         }
 
         function isConstructionOverlapping(zone) {
-            // Check all 3x3 cells of the zone
-            for (let dx = 0; dx < 3; dx++) {
+            // Check all 4x3 cells of the zone
+            for (let dx = 0; dx < 4; dx++) {
                 for (let dy = 0; dy < 3; dy++) {
                     const x = zone.x + dx;
                     const y = zone.y + dy;
@@ -486,8 +557,10 @@
         }
         
         function spawnBusStop() {
-            // Only spawn if 7 passengers picked up, bus is long enough, and max 2 stops
-            if (passengersPickedUp >= 7 && bus.length > 3 && busStops.length < 2) {
+            // Calculate max stops: base 5 + 1 additional for every 250 points
+            const maxStops = 5 + Math.floor(score / 250);
+            // Only spawn if 7 passengers picked up, bus is long enough, and under max stops
+            if (passengersPickedUp >= 7 && bus.length > 3 && busStops.length < maxStops) {
                 let newStop;
                 let attempts = 0;
                 do {
@@ -498,7 +571,8 @@
                     attempts++;
                 } while ((isOnBus(newStop.x, newStop.y) ||
                          isOnPassenger(newStop.x, newStop.y) ||
-                         isOnConstruction(newStop.x, newStop.y)) && attempts < 100);
+                         isOnConstruction(newStop.x, newStop.y) ||
+                         isOnFutureConstruction(newStop.x, newStop.y)) && attempts < 100);
 
                 if (attempts < 100) {
                     busStops.push(newStop);
@@ -646,7 +720,8 @@
             if (futureConstructionZone && passengersUntilConstruction <= 3 && passengersUntilConstruction > 0) {
                 const zoneX = futureConstructionZone.x * gridSize;
                 const zoneY = futureConstructionZone.y * gridSize;
-                const zoneSize = 3 * gridSize;
+                const zoneWidth = 4 * gridSize;
+                const zoneHeight = 3 * gridSize;
 
                 // Choose color based on countdown
                 let bgColor;
@@ -658,32 +733,47 @@
                     bgColor = 'rgba(255, 60, 60, 0.8)'; // Red
                 }
 
-                // Draw full 3x3 highlighted background
+                // Draw full 4x3 highlighted background
                 ctx.fillStyle = bgColor;
-                ctx.fillRect(zoneX, zoneY, zoneSize, zoneSize);
+                ctx.fillRect(zoneX, zoneY, zoneWidth, zoneHeight);
 
                 // Draw border around the zone
                 ctx.strokeStyle = passengersUntilConstruction === 1 ? '#ff3333' :
                                   passengersUntilConstruction === 2 ? '#ff8c00' : '#ffcc00';
                 ctx.lineWidth = 3;
-                ctx.strokeRect(zoneX + 1.5, zoneY + 1.5, zoneSize - 3, zoneSize - 3);
+                ctx.strokeRect(zoneX + 1.5, zoneY + 1.5, zoneWidth - 3, zoneHeight - 3);
 
-                // Draw countdown number in center
-                ctx.font = 'bold 40px sans-serif';
+                const centerX = zoneX + zoneWidth / 2;
+                const centerY = zoneY + zoneHeight / 2;
+
+                // Draw "Closure in" text above the number
+                ctx.font = 'bold 14px sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = '#fff';
                 ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.strokeText('Closure in', centerX, centerY - 20);
+                ctx.fillText('Closure in', centerX, centerY - 20);
+
+                // Draw countdown number in center
+                ctx.font = 'bold 40px sans-serif';
                 ctx.lineWidth = 3;
-                const centerX = zoneX + zoneSize / 2;
-                const centerY = zoneY + zoneSize / 2;
-                ctx.strokeText(passengersUntilConstruction.toString(), centerX, centerY);
-                ctx.fillText(passengersUntilConstruction.toString(), centerX, centerY);
+                ctx.strokeText(passengersUntilConstruction.toString(), centerX, centerY + 12);
+                ctx.fillText(passengersUntilConstruction.toString(), centerX, centerY + 12);
             }
 
             // Draw construction zone (if active)
             if (constructionZone) {
-                const constructionEmojis = ['🚧', '🏗️', '⚠️'];
+                // 4x3 emoji layout:
+                // Top row: 🚧 🚧 🚧 🚧
+                // Middle row: ⚠️ 👷 👷 ⚠️
+                // Bottom row: 🚧 🚧 🚧 🚧
+                const constructionLayout = [
+                    ['🚧', '🚧', '🚧', '🚧'],
+                    ['⚠️', '👷', '👷', '⚠️'],
+                    ['🚧', '🚧', '🚧', '🚧']
+                ];
                 ctx.globalAlpha = constructionFadeOpacity;
 
                 if (constructionShowCheckmark) {
@@ -691,24 +781,23 @@
                     ctx.font = '60px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    const centerX = (constructionZone.x + 1.5) * gridSize;
+                    const centerX = (constructionZone.x + 2) * gridSize;
                     const centerY = (constructionZone.y + 1.5) * gridSize;
                     ctx.fillText('✅', centerX, centerY);
                 } else {
-                    // Draw 3x3 construction zone with mixed emojis
+                    // Draw 4x3 construction zone with specific emoji layout
                     ctx.font = '20px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
 
-                    for (let dx = 0; dx < 3; dx++) {
-                        for (let dy = 0; dy < 3; dy++) {
+                    for (let dy = 0; dy < 3; dy++) {
+                        for (let dx = 0; dx < 4; dx++) {
                             const x = (constructionZone.x + dx) * gridSize + gridSize / 2;
                             const y = (constructionZone.y + dy) * gridSize + gridSize / 2;
 
                             // Blinking effect - alternate visibility
                             if (constructionBlinkState || (dx + dy) % 2 === 0) {
-                                const emojiIndex = (dx + dy * 3) % constructionEmojis.length;
-                                ctx.fillText(constructionEmojis[emojiIndex], x, y);
+                                ctx.fillText(constructionLayout[dy][dx], x, y);
                             }
                         }
                     }
@@ -840,9 +929,19 @@
         }
         
         document.getElementById('restartBtn').addEventListener('click', initGame);
-        
-        // Start game
-        initGame();
+
+        // Start screen handler
+        document.getElementById('tapToStart').addEventListener('click', function() {
+            // Initialize audio context for iOS
+            initAudio();
+            // Hide start screen
+            document.getElementById('startScreen').style.display = 'none';
+            // Start the game
+            initGame();
+        });
+
+        // Draw initial state without starting game loop
+        draw();
     </script>
 </body>
 </html>
