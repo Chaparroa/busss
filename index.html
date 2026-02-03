@@ -180,9 +180,10 @@
         <img src="cover-art-busss.png" alt="BUSSS Cover Art">
         <div id="startInstructions">
             <p>🚌 Swipe to change direction</p>
-            <p>🧍 Pick up passengers</p>
-            <p>🚏 Drop off at bus stops to shrink bus</p>
-            <p>🚧 Avoid construction zones</p>
+            <p>🧍 Pick up passengers (+10pts)</p>
+            <p>🚏 Drop off at stops to shrink (+15pts)</p>
+            <p>🎬 Collect landmarks (+200pts)</p>
+            <p>🚧 Avoid construction & 🚗🚙 traffic!</p>
         </div>
         <button id="tapToStart">TAP TO START</button>
     </div>
@@ -240,16 +241,6 @@
         let passengersPickedUp = 0;
         let gameSpeed = 150;
 
-        // Construction zone state
-        let constructionZone = null;
-        let constructionPassengerCount = 0; // Passengers picked up since construction appeared
-        let constructionFading = false;
-        let constructionFadeOpacity = 1;
-        let constructionShowCheckmark = false;
-        let constructionCompleted = true; // Tracks if previous zone was completed (starts true so first zone can spawn)
-        let futureConstructionZone = null; // Pre-determined location for next construction zone
-        let passengersUntilConstruction = 7; // Countdown to next construction (starts at 7 after completion)
-
         // Neighborhood system - 3x3 grid of LA neighborhoods
         const NEIGHBORHOODS = {
             // Row 0 (top)
@@ -270,48 +261,11 @@
         let currentNeighborhoodX = 1;
         let currentNeighborhoodY = 1;
 
-        // State for each neighborhood - tracks collected letters, landmark status, passenger count
+        // State for each neighborhood - tracks visited, landmark, construction, traffic
         let neighborhoodStates = {};
 
-        // L-shaped corner bumpers (3-square L in each corner)
-        // Each bumper is an array of {x, y} positions
-        const CORNER_BUMPERS = {
-            topLeft: [
-                {x: 0, y: 0}, {x: 1, y: 0}, {x: 2, y: 0},
-                {x: 0, y: 1},
-                {x: 0, y: 2}
-            ],
-            topRight: [
-                {x: 12, y: 0}, {x: 13, y: 0}, {x: 14, y: 0},
-                {x: 14, y: 1},
-                {x: 14, y: 2}
-            ],
-            bottomLeft: [
-                {x: 0, y: 22},
-                {x: 0, y: 23},
-                {x: 0, y: 24}, {x: 1, y: 24}, {x: 2, y: 24}
-            ],
-            bottomRight: [
-                {x: 14, y: 22},
-                {x: 14, y: 23},
-                {x: 12, y: 24}, {x: 13, y: 24}, {x: 14, y: 24}
-            ]
-        };
-
-        // Flatten all bumper positions for collision detection
-        function getAllBumperPositions() {
-            return [
-                ...CORNER_BUMPERS.topLeft,
-                ...CORNER_BUMPERS.topRight,
-                ...CORNER_BUMPERS.bottomLeft,
-                ...CORNER_BUMPERS.bottomRight
-            ];
-        }
-
-        function isOnBumper(x, y) {
-            const bumpers = getAllBumperPositions();
-            return bumpers.some(b => b.x === x && b.y === y);
-        }
+        // Traffic state - cars moving across neighborhoods
+        let globalCarSpawnCount = 0; // Alternates red/blue
 
         // Get current neighborhood data
         function getCurrentNeighborhood() {
@@ -327,64 +281,39 @@
             return neighborhoodStates[key];
         }
 
-        // Initialize state for a neighborhood
-        function initNeighborhoodState(key) {
-            const hood = NEIGHBORHOODS[key];
-            const letters = generateLetterPositions(hood.name);
-            neighborhoodStates[key] = {
-                collectedLetters: new Array(letters.length).fill(false),
-                letterPositions: letters,
-                landmarkCollected: false,
-                passengersPickedUp: 0,
-                etchedName: false // Shows etched name after all letters collected
-            };
+        // Get neighborhood state by key (for cross-neighborhood updates)
+        function getNeighborhoodStateByKey(key) {
+            if (!neighborhoodStates[key]) {
+                initNeighborhoodState(key);
+            }
+            return neighborhoodStates[key];
         }
 
-        // Generate positions for neighborhood name letters
-        function generateLetterPositions(name) {
-            const letters = [];
-            const words = name.split(' ');
-
-            // Calculate starting position (centered, avoiding bumpers, corridors, and bus start)
-            // Safe area is roughly columns 4-10 and rows 5-19
-            // Place letters in upper safe area to avoid bus starting position (7, 12)
-            const safeStartX = 4;
-            const safeEndX = 10;
-            const letterY = 16; // Below center to avoid bus start position
-
-            let currentY = letterY;
-
-            words.forEach((word, wordIndex) => {
-                const wordLength = word.length;
-                const startX = Math.floor((safeStartX + safeEndX) / 2) - Math.floor(wordLength / 2);
-
-                for (let i = 0; i < word.length; i++) {
-                    letters.push({
-                        x: startX + i,
-                        y: currentY,
-                        letter: word[i],
-                        isPassenger: i % 2 === 0, // Alternate between passenger and stop
-                        collected: false
-                    });
-                }
-                currentY += 2; // Space between word rows
-            });
-
-            return letters;
+        // Initialize state for a neighborhood
+        function initNeighborhoodState(key) {
+            neighborhoodStates[key] = {
+                visited: false,
+                landmarkCollected: false,
+                passengersPickedUp: 0,
+                // Construction state per neighborhood
+                constructionZone: null,
+                constructionPassengerCount: 0,
+                constructionFading: false,
+                constructionFadeOpacity: 1,
+                constructionShowCheckmark: false,
+                constructionCompleted: true,
+                futureConstructionZone: null,
+                passengersUntilConstruction: 7,
+                // Traffic state per neighborhood
+                car: null, // { x, y, direction, type: 'red'|'blue', speed }
+                totalPassengersPickedUp: 0 // For car spawn tracking
+            };
         }
 
         // Get landmark position for current neighborhood (2x2, centered in safe area)
         function getLandmarkPosition() {
             // Place landmark in upper portion of safe area
-            return { x: 6, y: 7 };
-        }
-
-        // Check if position is on a letter
-        function isOnLetter(x, y) {
-            const state = getCurrentNeighborhoodState();
-            return state.letterPositions.some((letter, i) =>
-                letter.x === x && letter.y === y && !state.collectedLetters[i]
-            );
+            return { x: 6, y: 6 };
         }
 
         // Check if position is on landmark (2x2 area)
@@ -396,9 +325,24 @@
             return x >= pos.x && x < pos.x + 2 && y >= pos.y && y < pos.y + 2;
         }
 
+        // Check if position is on car
+        function isOnCar(x, y) {
+            const state = getCurrentNeighborhoodState();
+            if (!state.car) return false;
+            return state.car.x === x && state.car.y === y;
+        }
+
+        // Get neighbor name in a direction
+        function getNeighborName(dx, dy) {
+            const nx = (currentNeighborhoodX + dx + 3) % 3;
+            const ny = (currentNeighborhoodY + dy + 3) % 3;
+            return NEIGHBORHOODS[`${nx},${ny}`].name;
+        }
+
         // Initialize all neighborhood states
         function initAllNeighborhoodStates() {
             neighborhoodStates = {};
+            globalCarSpawnCount = 0;
             Object.keys(NEIGHBORHOODS).forEach(key => {
                 initNeighborhoodState(key);
             });
@@ -417,51 +361,66 @@
             if (!audioContext) {
                 try {
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    audioInitialized = true;
                 } catch (e) {
                     console.warn('Web Audio API not supported');
                     return;
                 }
             }
-            if (audioContext.state === 'suspended') {
+            // Always try to resume if suspended (required for both mobile and desktop)
+            if (audioContext && audioContext.state === 'suspended') {
                 audioContext.resume().then(() => {
                     audioInitialized = true;
                 }).catch(e => console.warn('Audio resume failed:', e));
-            } else {
-                audioInitialized = true;
             }
         }
 
         function playCoinSound() {
-            // Ensure audio context is initialized
-            if (!audioContext) initAudio();
-            if (!audioContext || coinSoundPlaying) return;
+            // Ensure audio context is initialized and resumed
+            if (!audioContext) {
+                initAudio();
+                return; // Skip this sound, next one will work
+            }
+            if (coinSoundPlaying) return;
 
             // Resume audio context if suspended (browser autoplay policy)
             if (audioContext.state === 'suspended') {
-                audioContext.resume();
+                audioContext.resume().then(() => {
+                    doPlayCoinSound();
+                });
+                return;
             }
 
+            doPlayCoinSound();
+        }
+
+        function doPlayCoinSound() {
+            if (!audioContext || coinSoundPlaying) return;
             coinSoundPlaying = true;
 
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
+            try {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
 
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
 
-            // Create a pleasant coin chime effect
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(987.77, audioContext.currentTime); // B5
-            oscillator.frequency.setValueAtTime(1318.51, audioContext.currentTime + 0.08); // E6
+                // Create a pleasant coin chime effect
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(987.77, audioContext.currentTime); // B5
+                oscillator.frequency.setValueAtTime(1318.51, audioContext.currentTime + 0.08); // E6
 
-            // Quick fade in and out for a clean sound
-            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-            gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.02);
-            gainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 0.08);
-            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.15);
+                // Quick fade in and out for a clean sound
+                gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+                gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.02);
+                gainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 0.08);
+                gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.15);
 
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.15);
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.15);
+            } catch (e) {
+                console.warn('Coin sound error:', e);
+            }
 
             // Allow next sound after this one finishes
             setTimeout(() => {
@@ -470,44 +429,59 @@
         }
 
         function playDingDongSound() {
-            // Ensure audio context is initialized
-            if (!audioContext) initAudio();
-            if (!audioContext || dingDongPlaying) return;
+            // Ensure audio context is initialized and resumed
+            if (!audioContext) {
+                initAudio();
+                return; // Skip this sound, next one will work
+            }
+            if (dingDongPlaying) return;
 
             // Resume audio context if suspended (browser autoplay policy)
             if (audioContext.state === 'suspended') {
-                audioContext.resume();
+                audioContext.resume().then(() => {
+                    doPlayDingDongSound();
+                });
+                return;
             }
 
+            doPlayDingDongSound();
+        }
+
+        function doPlayDingDongSound() {
+            if (!audioContext || dingDongPlaying) return;
             dingDongPlaying = true;
 
-            // First tone - "ding" (higher pitch)
-            const oscillator1 = audioContext.createOscillator();
-            const gainNode1 = audioContext.createGain();
-            oscillator1.connect(gainNode1);
-            gainNode1.connect(audioContext.destination);
-            oscillator1.type = 'sine';
-            oscillator1.frequency.setValueAtTime(830.61, audioContext.currentTime); // G#5
-            gainNode1.gain.setValueAtTime(0, audioContext.currentTime);
-            gainNode1.gain.linearRampToValueAtTime(0.35, audioContext.currentTime + 0.02);
-            gainNode1.gain.linearRampToValueAtTime(0.25, audioContext.currentTime + 0.15);
-            gainNode1.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
-            oscillator1.start(audioContext.currentTime);
-            oscillator1.stop(audioContext.currentTime + 0.3);
+            try {
+                // First tone - "ding" (higher pitch)
+                const oscillator1 = audioContext.createOscillator();
+                const gainNode1 = audioContext.createGain();
+                oscillator1.connect(gainNode1);
+                gainNode1.connect(audioContext.destination);
+                oscillator1.type = 'sine';
+                oscillator1.frequency.setValueAtTime(830.61, audioContext.currentTime); // G#5
+                gainNode1.gain.setValueAtTime(0, audioContext.currentTime);
+                gainNode1.gain.linearRampToValueAtTime(0.35, audioContext.currentTime + 0.02);
+                gainNode1.gain.linearRampToValueAtTime(0.25, audioContext.currentTime + 0.15);
+                gainNode1.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
+                oscillator1.start(audioContext.currentTime);
+                oscillator1.stop(audioContext.currentTime + 0.3);
 
-            // Second tone - "dong" (lower pitch, starts slightly after)
-            const oscillator2 = audioContext.createOscillator();
-            const gainNode2 = audioContext.createGain();
-            oscillator2.connect(gainNode2);
-            gainNode2.connect(audioContext.destination);
-            oscillator2.type = 'sine';
-            oscillator2.frequency.setValueAtTime(622.25, audioContext.currentTime + 0.15); // D#5
-            gainNode2.gain.setValueAtTime(0, audioContext.currentTime + 0.15);
-            gainNode2.gain.linearRampToValueAtTime(0.35, audioContext.currentTime + 0.17);
-            gainNode2.gain.linearRampToValueAtTime(0.25, audioContext.currentTime + 0.3);
-            gainNode2.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.5);
-            oscillator2.start(audioContext.currentTime + 0.15);
-            oscillator2.stop(audioContext.currentTime + 0.5);
+                // Second tone - "dong" (lower pitch, starts slightly after)
+                const oscillator2 = audioContext.createOscillator();
+                const gainNode2 = audioContext.createGain();
+                oscillator2.connect(gainNode2);
+                gainNode2.connect(audioContext.destination);
+                oscillator2.type = 'sine';
+                oscillator2.frequency.setValueAtTime(622.25, audioContext.currentTime + 0.15); // D#5
+                gainNode2.gain.setValueAtTime(0, audioContext.currentTime + 0.15);
+                gainNode2.gain.linearRampToValueAtTime(0.35, audioContext.currentTime + 0.17);
+                gainNode2.gain.linearRampToValueAtTime(0.25, audioContext.currentTime + 0.3);
+                gainNode2.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.5);
+                oscillator2.start(audioContext.currentTime + 0.15);
+                oscillator2.stop(audioContext.currentTime + 0.5);
+            } catch (e) {
+                console.warn('Ding dong sound error:', e);
+            }
 
             // Allow next sound after this one finishes
             setTimeout(() => {
@@ -611,20 +585,14 @@
             passengersPickedUp = 0;
             gameSpeed = 150;
 
-            // Reset construction zone
-            constructionZone = null;
-            constructionPassengerCount = 0;
-            constructionFading = false;
-            constructionFadeOpacity = 1;
-            constructionShowCheckmark = false;
-            constructionCompleted = true;
-            futureConstructionZone = null;
-            passengersUntilConstruction = 7;
-
             // Reset neighborhood state - start in Downtown (center)
             currentNeighborhoodX = 1;
             currentNeighborhoodY = 1;
             initAllNeighborhoodStates();
+
+            // Mark starting neighborhood as visited
+            getCurrentNeighborhoodState().visited = true;
+
             updateNeighborhoodDisplay();
 
             // Spawn 3-4 passengers initially
@@ -646,16 +614,6 @@
             document.getElementById('neighborhoodName').style.backgroundColor = hood.color;
         }
 
-        // Helper function to lighten a hex color
-        function lightenColor(color, percent) {
-            const num = parseInt(color.replace('#', ''), 16);
-            const amt = Math.round(2.55 * percent);
-            const R = Math.min(255, (num >> 16) + amt);
-            const G = Math.min(255, ((num >> 8) & 0x00FF) + amt);
-            const B = Math.min(255, (num & 0x0000FF) + amt);
-            return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
-        }
-        
         function spawnPassenger() {
             let newPassenger;
             let attempts = 0;
@@ -671,9 +629,8 @@
                      isOnBusStop(newPassenger.x, newPassenger.y) ||
                      isOnConstruction(newPassenger.x, newPassenger.y) ||
                      isOnFutureConstruction(newPassenger.x, newPassenger.y) ||
-                     isOnBumper(newPassenger.x, newPassenger.y) ||
-                     isOnLetter(newPassenger.x, newPassenger.y) ||
-                     isOnLandmark(newPassenger.x, newPassenger.y)) && attempts < 100);
+                     isOnLandmark(newPassenger.x, newPassenger.y) ||
+                     isOnCar(newPassenger.x, newPassenger.y)) && attempts < 100);
 
             if (attempts < 100) {
                 passengers.push(newPassenger);
@@ -685,26 +642,29 @@
         }
 
         function isOnConstruction(x, y) {
-            if (!constructionZone || constructionFading) return false;
-            return x >= constructionZone.x && x < constructionZone.x + 4 &&
-                   y >= constructionZone.y && y < constructionZone.y + 3;
+            const state = getCurrentNeighborhoodState();
+            if (!state.constructionZone || state.constructionFading) return false;
+            return x >= state.constructionZone.x && x < state.constructionZone.x + 4 &&
+                   y >= state.constructionZone.y && y < state.constructionZone.y + 3;
         }
 
         function isOnFutureConstruction(x, y) {
-            if (!futureConstructionZone) return false;
-            return x >= futureConstructionZone.x && x < futureConstructionZone.x + 4 &&
-                   y >= futureConstructionZone.y && y < futureConstructionZone.y + 3;
+            const state = getCurrentNeighborhoodState();
+            if (!state.futureConstructionZone) return false;
+            return x >= state.futureConstructionZone.x && x < state.futureConstructionZone.x + 4 &&
+                   y >= state.futureConstructionZone.y && y < state.futureConstructionZone.y + 3;
         }
 
         function spawnConstructionZone() {
-            if (constructionZone || constructionFading) return;
+            const state = getCurrentNeighborhoodState();
+            if (state.constructionZone || state.constructionFading) return;
 
             // Use pre-determined future location if available
-            if (futureConstructionZone) {
-                constructionZone = futureConstructionZone;
-                futureConstructionZone = null;
-                constructionPassengerCount = 0;
-                constructionCompleted = false;
+            if (state.futureConstructionZone) {
+                state.constructionZone = state.futureConstructionZone;
+                state.futureConstructionZone = null;
+                state.constructionPassengerCount = 0;
+                state.constructionCompleted = false;
                 return;
             }
 
@@ -719,14 +679,15 @@
             } while (isConstructionOverlapping(zone) && attempts < 100);
 
             if (attempts < 100) {
-                constructionZone = zone;
-                constructionPassengerCount = 0;
-                constructionCompleted = false;
+                state.constructionZone = zone;
+                state.constructionPassengerCount = 0;
+                state.constructionCompleted = false;
             }
         }
 
         function pickFutureConstructionLocation() {
-            if (futureConstructionZone) return; // Already picked
+            const state = getCurrentNeighborhoodState();
+            if (state.futureConstructionZone) return; // Already picked
 
             let attempts = 0;
             let zone;
@@ -739,7 +700,7 @@
             } while (isConstructionOverlapping(zone) && attempts < 100);
 
             if (attempts < 100) {
-                futureConstructionZone = zone;
+                state.futureConstructionZone = zone;
             }
         }
 
@@ -750,7 +711,7 @@
                     const x = zone.x + dx;
                     const y = zone.y + dy;
                     if (isOnBus(x, y) || isOnPassenger(x, y) || isOnBusStop(x, y) ||
-                        isOnBumper(x, y) || isOnLetter(x, y) || isOnLandmark(x, y)) {
+                        isOnLandmark(x, y) || isOnCar(x, y)) {
                         return true;
                     }
                 }
@@ -758,26 +719,98 @@
             return false;
         }
 
-        function startConstructionFade() {
-            constructionShowCheckmark = true;
-            constructionFading = true;
+        function startConstructionFade(neighborhoodKey) {
+            const state = getNeighborhoodStateByKey(neighborhoodKey);
+            state.constructionShowCheckmark = true;
+            state.constructionFading = true;
 
             // Show checkmark for 0.5 seconds
             setTimeout(() => {
-                constructionShowCheckmark = false;
+                state.constructionShowCheckmark = false;
                 // Start fade out
                 const fadeInterval = setInterval(() => {
-                    constructionFadeOpacity -= 0.1;
-                    if (constructionFadeOpacity <= 0) {
+                    state.constructionFadeOpacity -= 0.1;
+                    if (state.constructionFadeOpacity <= 0) {
                         clearInterval(fadeInterval);
-                        constructionZone = null;
-                        constructionFading = false;
-                        constructionFadeOpacity = 1;
-                        constructionCompleted = true;
-                        passengersUntilConstruction = 7; // Reset countdown for next construction
+                        state.constructionZone = null;
+                        state.constructionFading = false;
+                        state.constructionFadeOpacity = 1;
+                        state.constructionCompleted = true;
+                        state.passengersUntilConstruction = 7; // Reset countdown for next construction
                     }
                 }, 50);
             }, 500);
+        }
+
+        // Traffic functions
+        function spawnCar() {
+            const state = getCurrentNeighborhoodState();
+            if (state.car) return; // Already has a car
+
+            globalCarSpawnCount++;
+            const isRed = globalCarSpawnCount % 2 === 1;
+
+            // Random edge and direction
+            const edges = ['left', 'right', 'top', 'bottom'];
+            const edge = edges[Math.floor(Math.random() * edges.length)];
+
+            let car = {
+                type: isRed ? 'red' : 'blue',
+                speed: isRed ? 200 : 100, // Red slower (200ms), blue faster (100ms)
+                lastMove: Date.now()
+            };
+
+            // Set starting position and direction based on edge
+            switch (edge) {
+                case 'left':
+                    car.x = 0;
+                    car.y = Math.floor(Math.random() * tileCountY);
+                    car.dx = 1;
+                    car.dy = 0;
+                    break;
+                case 'right':
+                    car.x = tileCountX - 1;
+                    car.y = Math.floor(Math.random() * tileCountY);
+                    car.dx = -1;
+                    car.dy = 0;
+                    break;
+                case 'top':
+                    car.x = Math.floor(Math.random() * tileCountX);
+                    car.y = 0;
+                    car.dx = 0;
+                    car.dy = 1;
+                    break;
+                case 'bottom':
+                    car.x = Math.floor(Math.random() * tileCountX);
+                    car.y = tileCountY - 1;
+                    car.dx = 0;
+                    car.dy = -1;
+                    break;
+            }
+
+            state.car = car;
+        }
+
+        function updateAllCars() {
+            const now = Date.now();
+            // Update cars in all neighborhoods
+            Object.keys(neighborhoodStates).forEach(key => {
+                const state = neighborhoodStates[key];
+                if (state.car) {
+                    // Check if enough time has passed for this car to move
+                    if (now - state.car.lastMove >= state.car.speed) {
+                        state.car.x += state.car.dx;
+                        state.car.y += state.car.dy;
+                        state.car.lastMove = now;
+
+                        // Remove car if it's left the grid
+                        if (state.car.x < 0 || state.car.x >= tileCountX ||
+                            state.car.y < 0 || state.car.y >= tileCountY) {
+                            state.car = null;
+                        }
+                    }
+                }
+            });
         }
         
         function spawnBusStop() {
@@ -797,9 +830,8 @@
                          isOnPassenger(newStop.x, newStop.y) ||
                          isOnConstruction(newStop.x, newStop.y) ||
                          isOnFutureConstruction(newStop.x, newStop.y) ||
-                         isOnBumper(newStop.x, newStop.y) ||
-                         isOnLetter(newStop.x, newStop.y) ||
-                         isOnLandmark(newStop.x, newStop.y)) && attempts < 100);
+                         isOnLandmark(newStop.x, newStop.y) ||
+                         isOnCar(newStop.x, newStop.y)) && attempts < 100);
 
                 if (attempts < 100) {
                     busStops.push(newStop);
@@ -819,12 +851,15 @@
         function update() {
             if (!gameRunning) return;
 
+            // Update all cars in all neighborhoods
+            updateAllCars();
+
             direction = { ...nextDirection };
 
             // Move bus
             let head = { x: bus[0].x + direction.x, y: bus[0].y + direction.y };
 
-            // Check for neighborhood transition (going through corridors at edges)
+            // Check for neighborhood transition (going through open edges)
             let transitioned = false;
             if (head.x < 0) {
                 // Going left - transition to west neighborhood
@@ -849,29 +884,21 @@
             }
 
             if (transitioned) {
-                // Update display and clear current neighborhood entities
+                // Update display
                 updateNeighborhoodDisplay();
+
+                // Mark as visited (shows etched name)
+                getCurrentNeighborhoodState().visited = true;
+
+                // Clear local entities but keep neighborhood state (construction persists)
                 passengers = [];
                 busStops = [];
-                constructionZone = null;
-                futureConstructionZone = null;
-                constructionFading = false;
-                constructionFadeOpacity = 1;
-                constructionShowCheckmark = false;
-                constructionCompleted = true;
-                passengersUntilConstruction = 7;
 
                 // Spawn passengers in new neighborhood
                 const initialPassengers = 3 + Math.floor(Math.random() * 2);
                 for (let i = 0; i < initialPassengers; i++) {
                     spawnPassenger();
                 }
-            }
-
-            // Check collision with bumpers (instant death)
-            if (isOnBumper(head.x, head.y)) {
-                endGame();
-                return;
             }
 
             // Check collision with self
@@ -886,38 +913,16 @@
                 return;
             }
 
+            // Check collision with car (instant death)
+            if (isOnCar(head.x, head.y)) {
+                endGame();
+                return;
+            }
+
             bus.unshift(head);
 
-            // Check letter collection
             const state = getCurrentNeighborhoodState();
-            state.letterPositions.forEach((letter, index) => {
-                if (!state.collectedLetters[index] && head.x === letter.x && head.y === letter.y) {
-                    state.collectedLetters[index] = true;
-                    if (letter.isPassenger) {
-                        // Passenger letter - bus grows, +10 points
-                        score += 10;
-                        playCoinSound();
-                    } else {
-                        // Stop letter - drop off passengers if possible
-                        if (bus.length > 3) {
-                            const dropOff = Math.min(3, bus.length - 3);
-                            for (let i = 0; i < dropOff; i++) {
-                                bus.pop();
-                            }
-                            score += dropOff * 15;
-                            playDingDongSound();
-                        } else {
-                            score += 15;
-                            playDingDongSound();
-                        }
-                    }
-
-                    // Check if all letters collected - reveal etched name
-                    if (state.collectedLetters.every(c => c)) {
-                        state.etchedName = true;
-                    }
-                }
-            });
+            const neighborhoodKey = `${currentNeighborhoodX},${currentNeighborhoodY}`;
 
             // Check landmark collection (2x2 area)
             if (!state.landmarkCollected) {
@@ -939,21 +944,26 @@
                     pickedUp = true;
                     passengersPickedUp++;
 
-                    // Track neighborhood-specific passenger count for landmark respawn
-                    const neighborhoodState = getCurrentNeighborhoodState();
-                    neighborhoodState.passengersPickedUp++;
+                    // Track neighborhood-specific passenger count for landmark respawn and car spawn
+                    state.passengersPickedUp++;
+                    state.totalPassengersPickedUp++;
 
                     // Check if landmark should respawn (10 passengers in this neighborhood after collection)
-                    if (neighborhoodState.landmarkCollected && neighborhoodState.passengersPickedUp >= 10) {
-                        neighborhoodState.landmarkCollected = false;
-                        neighborhoodState.passengersPickedUp = 0;
+                    if (state.landmarkCollected && state.passengersPickedUp >= 10) {
+                        state.landmarkCollected = false;
+                        state.passengersPickedUp = 0;
+                    }
+
+                    // Check if car should spawn (every 15 passengers in this neighborhood)
+                    if (state.totalPassengersPickedUp % 15 === 0 && !state.car) {
+                        spawnCar();
                     }
 
                     // Track passengers for construction zone removal
-                    if (constructionZone && !constructionFading) {
-                        constructionPassengerCount++;
-                        if (constructionPassengerCount >= 4) {
-                            startConstructionFade();
+                    if (state.constructionZone && !state.constructionFading) {
+                        state.constructionPassengerCount++;
+                        if (state.constructionPassengerCount >= 4) {
+                            startConstructionFade(neighborhoodKey);
                         }
                     }
 
@@ -977,17 +987,17 @@
                     spawnPassenger();
                 }
 
-                // Construction zone spawning logic - only after previous completed AND 7 passengers
-                if (constructionCompleted && !constructionZone && !constructionFading) {
-                    passengersUntilConstruction--;
+                // Construction zone spawning logic - per neighborhood
+                if (state.constructionCompleted && !state.constructionZone && !state.constructionFading) {
+                    state.passengersUntilConstruction--;
 
                     // At 3 passengers remaining, pick the future location
-                    if (passengersUntilConstruction === 3 && !futureConstructionZone) {
+                    if (state.passengersUntilConstruction === 3 && !state.futureConstructionZone) {
                         pickFutureConstructionLocation();
                     }
 
                     // When countdown reaches 0, spawn the construction zone
-                    if (passengersUntilConstruction <= 0) {
+                    if (state.passengersUntilConstruction <= 0) {
                         spawnConstructionZone();
                     }
                 }
@@ -1042,44 +1052,50 @@
                 ctx.stroke();
             }
 
-            // Draw L-shaped corner bumpers (with lighter shade of neighborhood color)
-            const bumperColor = lightenColor(hood.color, 30);
-            ctx.fillStyle = bumperColor;
-            getAllBumperPositions().forEach(pos => {
-                ctx.fillRect(pos.x * gridSize, pos.y * gridSize, gridSize, gridSize);
-            });
-
-            // Draw etched neighborhood name (if all letters collected)
-            if (hoodState.etchedName) {
-                ctx.font = 'bold 20px sans-serif';
+            // Draw etched neighborhood name (always visible once visited)
+            if (hoodState.visited) {
+                ctx.font = 'bold 28px sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
 
                 const words = hood.name.split(' ');
-                const centerY = Math.floor(tileCountY / 2);
-                let currentY = centerY - Math.floor(words.length / 2);
+                const nameY = 17; // Position below landmark area
+                let currentY = nameY;
 
                 words.forEach(word => {
-                    const wordCenterX = Math.floor(tileCountX / 2) * gridSize + gridSize / 2;
+                    const wordCenterX = canvasWidth / 2;
                     const wordCenterY = currentY * gridSize + gridSize / 2;
                     ctx.fillText(word, wordCenterX, wordCenterY);
-                    currentY += 2;
+                    currentY += 1.5;
                 });
             }
 
-            // Draw uncollected letter emojis
-            ctx.font = '24px sans-serif';
+            // Draw etched directional arrows (smaller text, on edges)
+            ctx.font = '11px sans-serif';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            hoodState.letterPositions.forEach((letter, index) => {
-                if (!hoodState.collectedLetters[index]) {
-                    const emoji = letter.isPassenger ? '🧍' : '🚏';
-                    const px = letter.x * gridSize + gridSize / 2;
-                    const py = letter.y * gridSize + gridSize / 2;
-                    ctx.fillText(emoji, px, py);
-                }
-            });
+
+            // Left arrow
+            ctx.save();
+            ctx.translate(15, canvasHeight / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText('← ' + getNeighborName(-1, 0), 0, 0);
+            ctx.restore();
+
+            // Right arrow
+            ctx.save();
+            ctx.translate(canvasWidth - 15, canvasHeight / 2);
+            ctx.rotate(Math.PI / 2);
+            ctx.fillText('← ' + getNeighborName(1, 0), 0, 0);
+            ctx.restore();
+
+            // Top arrow
+            ctx.fillText(getNeighborName(0, -1) + ' ↑', canvasWidth / 2, 12);
+
+            // Bottom arrow
+            ctx.fillText('↓ ' + getNeighborName(0, 1), canvasWidth / 2, canvasHeight - 12);
 
             // Draw landmark (2x2 emoji) if not collected
             if (!hoodState.landmarkCollected) {
@@ -1092,18 +1108,18 @@
                 ctx.fillText(hood.landmark, lx, ly);
             }
 
-            // Draw construction countdown warning (if future zone is picked and countdown is 3 or less)
-            if (futureConstructionZone && passengersUntilConstruction <= 3 && passengersUntilConstruction > 0) {
-                const zoneX = futureConstructionZone.x * gridSize;
-                const zoneY = futureConstructionZone.y * gridSize;
+            // Draw construction countdown warning (per-neighborhood state)
+            if (hoodState.futureConstructionZone && hoodState.passengersUntilConstruction <= 3 && hoodState.passengersUntilConstruction > 0) {
+                const zoneX = hoodState.futureConstructionZone.x * gridSize;
+                const zoneY = hoodState.futureConstructionZone.y * gridSize;
                 const zoneWidth = 4 * gridSize;
                 const zoneHeight = 3 * gridSize;
 
                 // Choose color based on countdown
                 let bgColor;
-                if (passengersUntilConstruction === 3) {
+                if (hoodState.passengersUntilConstruction === 3) {
                     bgColor = 'rgba(255, 200, 0, 0.6)'; // Yellow/caution
-                } else if (passengersUntilConstruction === 2) {
+                } else if (hoodState.passengersUntilConstruction === 2) {
                     bgColor = 'rgba(255, 140, 0, 0.7)'; // Orange
                 } else {
                     bgColor = 'rgba(255, 60, 60, 0.8)'; // Red
@@ -1114,8 +1130,8 @@
                 ctx.fillRect(zoneX, zoneY, zoneWidth, zoneHeight);
 
                 // Draw border around the zone
-                ctx.strokeStyle = passengersUntilConstruction === 1 ? '#ff3333' :
-                                  passengersUntilConstruction === 2 ? '#ff8c00' : '#ffcc00';
+                ctx.strokeStyle = hoodState.passengersUntilConstruction === 1 ? '#ff3333' :
+                                  hoodState.passengersUntilConstruction === 2 ? '#ff8c00' : '#ffcc00';
                 ctx.lineWidth = 3;
                 ctx.strokeRect(zoneX + 1.5, zoneY + 1.5, zoneWidth - 3, zoneHeight - 3);
 
@@ -1135,12 +1151,12 @@
                 // Draw countdown number in center
                 ctx.font = 'bold 44px sans-serif';
                 ctx.lineWidth = 4;
-                ctx.strokeText(passengersUntilConstruction.toString(), centerX, centerY + 12);
-                ctx.fillText(passengersUntilConstruction.toString(), centerX, centerY + 12);
+                ctx.strokeText(hoodState.passengersUntilConstruction.toString(), centerX, centerY + 12);
+                ctx.fillText(hoodState.passengersUntilConstruction.toString(), centerX, centerY + 12);
             }
 
-            // Draw construction zone (if active)
-            if (constructionZone) {
+            // Draw construction zone (per-neighborhood state)
+            if (hoodState.constructionZone) {
                 // 4x3 emoji layout:
                 // Top row: 🚧 🚧 🚧 🚧
                 // Middle row: ⚠️ 👷 👷 ⚠️
@@ -1150,15 +1166,15 @@
                     ['⚠️', '👷', '👷', '⚠️'],
                     ['🚧', '🚧', '🚧', '🚧']
                 ];
-                ctx.globalAlpha = constructionFadeOpacity;
+                ctx.globalAlpha = hoodState.constructionFadeOpacity;
 
-                if (constructionShowCheckmark) {
+                if (hoodState.constructionShowCheckmark) {
                     // Show green checkmark
                     ctx.font = '72px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
-                    const centerX = (constructionZone.x + 2) * gridSize;
-                    const centerY = (constructionZone.y + 1.5) * gridSize;
+                    const centerX = (hoodState.constructionZone.x + 2) * gridSize;
+                    const centerY = (hoodState.constructionZone.y + 1.5) * gridSize;
                     ctx.fillText('✅', centerX, centerY);
                 } else {
                     // Draw 4x3 construction zone with specific emoji layout
@@ -1168,13 +1184,24 @@
 
                     for (let dy = 0; dy < 3; dy++) {
                         for (let dx = 0; dx < 4; dx++) {
-                            const x = (constructionZone.x + dx) * gridSize + gridSize / 2;
-                            const y = (constructionZone.y + dy) * gridSize + gridSize / 2;
+                            const x = (hoodState.constructionZone.x + dx) * gridSize + gridSize / 2;
+                            const y = (hoodState.constructionZone.y + dy) * gridSize + gridSize / 2;
                             ctx.fillText(constructionLayout[dy][dx], x, y);
                         }
                     }
                 }
                 ctx.globalAlpha = 1;
+            }
+
+            // Draw car if present
+            if (hoodState.car) {
+                ctx.font = '22px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const carEmoji = hoodState.car.type === 'red' ? '🚗' : '🚙';
+                const cx = hoodState.car.x * gridSize + gridSize / 2;
+                const cy = hoodState.car.y * gridSize + gridSize / 2;
+                ctx.fillText(carEmoji, cx, cy);
             }
 
             // Draw bus (pixel art style - kept as-is)
