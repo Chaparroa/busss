@@ -173,7 +173,6 @@
             <p>🚌 Swipe to change direction</p>
             <p>🧍 Pick up passengers (+10pts)</p>
             <p>🚏 Drop off at stops to shrink (+15pts)</p>
-            <p>🎬 Collect landmarks (+200pts)</p>
             <p>🚧 Avoid construction & 🚗🚙 traffic!</p>
         </div>
         <button id="tapToStart">TAP TO START</button>
@@ -350,22 +349,33 @@
         let audioInitialized = false;
 
         function initAudio() {
+            // Create AudioContext if it doesn't exist
             if (!audioContext) {
                 try {
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    // Use standard AudioContext or webkit prefix for older Safari
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) {
+                        audioContext = new AudioCtx();
+                        console.log('AudioContext created, state:', audioContext.state);
+                    }
                 } catch (e) {
-                    console.warn('Web Audio API not supported');
+                    console.warn('Web Audio API not supported:', e);
                     return;
                 }
             }
-            // Always try to resume if suspended (required for both mobile and desktop)
-            if (audioContext && audioContext.state === 'suspended') {
+
+            if (!audioContext) return;
+
+            // Always try to resume if suspended (required for both mobile AND desktop)
+            // Desktop browsers (Chrome, Safari, Firefox) all require user gesture to start audio
+            if (audioContext.state === 'suspended') {
                 audioContext.resume().then(() => {
                     audioInitialized = true;
+                    console.log('AudioContext resumed successfully');
                     // Play a silent sound to fully unlock audio on some browsers
                     unlockAudio();
                 }).catch(e => console.warn('Audio resume failed:', e));
-            } else if (audioContext && audioContext.state === 'running') {
+            } else if (audioContext.state === 'running') {
                 audioInitialized = true;
             }
         }
@@ -573,13 +583,25 @@
             initAudio();
         });
 
-        // Also initialize audio on any document interaction (for desktop browsers)
+        // Initialize audio on any document interaction (for desktop browsers)
+        // Don't use { once: true } - need to keep trying until audio is unlocked
         document.addEventListener('click', () => {
-            initAudio();
-        }, { once: true });
+            if (!audioInitialized) {
+                initAudio();
+            }
+        });
 
         document.addEventListener('mousedown', () => {
-            initAudio();
+            if (!audioInitialized) {
+                initAudio();
+            }
+        });
+
+        // Additional keydown listener for desktop keyboard users
+        document.addEventListener('keydown', () => {
+            if (!audioInitialized) {
+                initAudio();
+            }
         }, { once: true });
         
         function initGame() {
@@ -897,16 +919,26 @@
                 transitionedNeighborhood = true;
             }
 
-            // If we transitioned to a NEW neighborhood, reset bus to just the head
-            // This prevents self-collision from the tail that was in the previous neighborhood
+            // If we transitioned to a NEW neighborhood, preserve bus length
+            // Recreate bus segments trailing behind the head from the entry edge
             if (transitionedNeighborhood) {
                 const newNeighborhoodKey = `${currentNeighborhoodX},${currentNeighborhoodY}`;
                 const newState = getNeighborhoodStateByKey(newNeighborhoodKey);
                 newState.visited = true;
 
-                // Clear bus except for where head will be - prevents self-collision on entry
-                // Keep just 2 segments (head position will be added, so we keep 1 for tail)
+                // CRITICAL: Preserve bus length when transitioning neighborhoods
+                // Create segments trailing behind head in opposite direction of travel
+                const busLength = bus.length;
                 bus = [{ x: head.x, y: head.y }];
+
+                // Add remaining segments trailing behind (off-screen, will follow naturally)
+                for (let i = 1; i < busLength; i++) {
+                    const prevSegment = bus[bus.length - 1];
+                    // Trail in opposite direction of movement (segments enter from edge)
+                    const trailX = prevSegment.x - direction.x;
+                    const trailY = prevSegment.y - direction.y;
+                    bus.push({ x: trailX, y: trailY });
+                }
 
                 // Spawn new passengers in the new neighborhood
                 passengers = [];
@@ -976,8 +1008,8 @@
                         state.passengersPickedUp = 0;
                     }
 
-                    // Check if car should spawn (every 15 passengers in this neighborhood)
-                    if (state.totalPassengersPickedUp % 15 === 0 && !state.car) {
+                    // Check if car should spawn (every 7 passengers in this neighborhood)
+                    if (state.totalPassengersPickedUp % 7 === 0 && !state.car) {
                         spawnCar();
                     }
 
@@ -1360,8 +1392,21 @@
 
         // Start screen handler
         document.getElementById('tapToStart').addEventListener('click', function() {
-            // Initialize audio context for iOS
+            // Initialize audio context - critical for both mobile AND desktop browsers
+            // This is the main user gesture that unlocks audio
             initAudio();
+
+            // For desktop browsers, force a second resume attempt after a short delay
+            // This helps with Chrome/Safari/Firefox autoplay policies
+            setTimeout(() => {
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume().then(() => {
+                        audioInitialized = true;
+                        unlockAudio();
+                    });
+                }
+            }, 100);
+
             // Hide start screen
             document.getElementById('startScreen').style.display = 'none';
             // Start the game
