@@ -300,10 +300,12 @@
             };
         }
 
-        // Get landmark position for current neighborhood (2x2, centered in safe area)
+        // Get landmark position for current neighborhood (2x2, centered on screen)
         function getLandmarkPosition() {
-            // Place landmark in upper left, next to neighborhood name
-            return { x: 1, y: 2 };
+            // Place landmark centered horizontally, in upper portion of screen
+            // Canvas is 15 tiles wide (0-14), center is around tile 5-6 for a 2x2 landmark
+            // Leave room for name to the right
+            return { x: 4, y: 3 };
         }
 
         // Check if position is on landmark (2x2 area)
@@ -823,8 +825,8 @@
         function spawnBusStop() {
             // Calculate max stops: base 5 + 1 additional for every 250 points
             const maxStops = 5 + Math.floor(score / 250);
-            // Only spawn if 7 passengers picked up, bus is long enough, and under max stops
-            if (passengersPickedUp >= 7 && bus.length > 3 && busStops.length < maxStops) {
+            // Only spawn if 5 passengers picked up, bus is long enough, and under max stops
+            if (passengersPickedUp >= 5 && bus.length > 3 && busStops.length < maxStops) {
                 let newStop;
                 let attempts = 0;
                 do {
@@ -866,13 +868,62 @@
             // Move bus
             let head = { x: bus[0].x + direction.x, y: bus[0].y + direction.y };
 
-            // Wraparound within same neighborhood (pac-man style)
-            if (head.x < 0) head.x = tileCountX - 1;
-            else if (head.x >= tileCountX) head.x = 0;
-            if (head.y < 0) head.y = tileCountY - 1;
-            else if (head.y >= tileCountY) head.y = 0;
+            // Check for neighborhood transitions when bus goes off screen edges
+            let transitionedNeighborhood = false;
+            const prevNeighborhoodX = currentNeighborhoodX;
+            const prevNeighborhoodY = currentNeighborhoodY;
 
-            // Check collision with self
+            if (head.x < 0) {
+                // Transition to left neighborhood
+                currentNeighborhoodX = (currentNeighborhoodX - 1 + 3) % 3;
+                head.x = tileCountX - 1;
+                transitionedNeighborhood = true;
+            } else if (head.x >= tileCountX) {
+                // Transition to right neighborhood
+                currentNeighborhoodX = (currentNeighborhoodX + 1) % 3;
+                head.x = 0;
+                transitionedNeighborhood = true;
+            }
+
+            if (head.y < 0) {
+                // Transition to top neighborhood
+                currentNeighborhoodY = (currentNeighborhoodY - 1 + 3) % 3;
+                head.y = tileCountY - 1;
+                transitionedNeighborhood = true;
+            } else if (head.y >= tileCountY) {
+                // Transition to bottom neighborhood
+                currentNeighborhoodY = (currentNeighborhoodY + 1) % 3;
+                head.y = 0;
+                transitionedNeighborhood = true;
+            }
+
+            // If we transitioned to a NEW neighborhood, reset bus to just the head
+            // This prevents self-collision from the tail that was in the previous neighborhood
+            if (transitionedNeighborhood) {
+                const newNeighborhoodKey = `${currentNeighborhoodX},${currentNeighborhoodY}`;
+                const newState = getNeighborhoodStateByKey(newNeighborhoodKey);
+                newState.visited = true;
+
+                // Clear bus except for where head will be - prevents self-collision on entry
+                // Keep just 2 segments (head position will be added, so we keep 1 for tail)
+                bus = [{ x: head.x, y: head.y }];
+
+                // Spawn new passengers in the new neighborhood
+                passengers = [];
+                const initialPassengers = 3 + Math.floor(Math.random() * 2);
+                for (let i = 0; i < initialPassengers; i++) {
+                    spawnPassenger();
+                }
+
+                // Clear bus stops for the new neighborhood
+                busStops = [];
+
+                updateNeighborhoodDisplay();
+                draw();
+                return; // Skip the rest of update for this frame
+            }
+
+            // Check collision with self (only matters within same neighborhood now)
             if (isOnBus(head.x, head.y)) {
                 endGame();
                 return;
@@ -1023,7 +1074,7 @@
                 ctx.stroke();
             }
 
-            // Draw etched neighborhood name (always visible once visited, positioned next to landmark)
+            // Draw etched neighborhood name (always visible once visited, centered with landmark)
             if (hoodState.visited) {
                 ctx.font = 'bold 18px sans-serif';
                 ctx.textAlign = 'left';
@@ -1031,9 +1082,14 @@
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
 
                 const landmarkPos = getLandmarkPosition();
-                const nameX = (landmarkPos.x + 2) * gridSize + 8; // Right of landmark
+                // Position name to the right of the 2x2 landmark, centered vertically
+                const nameX = (landmarkPos.x + 2) * gridSize + 10; // Right of landmark with small gap
                 const words = hood.name.split(' ');
-                let currentY = landmarkPos.y * gridSize + gridSize;
+
+                // Center the text block vertically with the landmark
+                const totalTextHeight = words.length * 22;
+                const landmarkCenterY = (landmarkPos.y * gridSize) + gridSize; // Center of 2x2 landmark
+                let currentY = landmarkCenterY - (totalTextHeight / 2) + 11; // Start position to center text block
 
                 words.forEach(word => {
                     ctx.fillText(word, nameX, currentY);
@@ -1046,32 +1102,30 @@
             ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
             ctx.textBaseline = 'middle';
 
-            // Left arrow - pointing left
+            // Left arrow - arrow LEFT of the neighborhood name (← [Name])
             ctx.save();
-            ctx.translate(12, canvasHeight / 2);
+            ctx.translate(14, canvasHeight / 2);
             ctx.rotate(-Math.PI / 2);
             ctx.textAlign = 'center';
-            ctx.fillText(getNeighborName(-1, 0), 0, 0);
+            ctx.fillText('← ' + getNeighborName(-1, 0), 0, 0);
             ctx.restore();
-            ctx.textAlign = 'left';
-            ctx.fillText('←', 5, canvasHeight / 2);
 
-            // Right arrow - pointing right
+            // Right arrow - arrow RIGHT of the neighborhood name ([Name] →)
             ctx.save();
-            ctx.translate(canvasWidth - 12, canvasHeight / 2);
+            ctx.translate(canvasWidth - 14, canvasHeight / 2);
             ctx.rotate(Math.PI / 2);
             ctx.textAlign = 'center';
-            ctx.fillText(getNeighborName(1, 0), 0, 0);
+            ctx.fillText(getNeighborName(1, 0) + ' →', 0, 0);
             ctx.restore();
-            ctx.textAlign = 'right';
-            ctx.fillText('→', canvasWidth - 5, canvasHeight / 2);
 
-            // Top arrow - pointing up
+            // Top arrow - arrow ABOVE the neighborhood name
             ctx.textAlign = 'center';
-            ctx.fillText('↑ ' + getNeighborName(0, -1), canvasWidth / 2, 12);
+            ctx.fillText('↑', canvasWidth / 2, 8);
+            ctx.fillText(getNeighborName(0, -1), canvasWidth / 2, 20);
 
-            // Bottom arrow - pointing down
-            ctx.fillText(getNeighborName(0, 1) + ' ↓', canvasWidth / 2, canvasHeight - 12);
+            // Bottom arrow - arrow BELOW the neighborhood name
+            ctx.fillText(getNeighborName(0, 1), canvasWidth / 2, canvasHeight - 20);
+            ctx.fillText('↓', canvasWidth / 2, canvasHeight - 8);
 
             // Draw landmark (2x2 emoji) if not collected
             if (!hoodState.landmarkCollected) {
