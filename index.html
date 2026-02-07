@@ -228,6 +228,7 @@
         let gameRunning = false;
         let gameLoop;
         let passengersPickedUp = 0;
+        let globalPassengersPickedUp = 0;
         let gameSpeed = 150;
 
         // Neighborhood system - 3x3 grid of LA neighborhoods
@@ -284,6 +285,12 @@
                 visited: false,
                 landmarkCollected: false,
                 passengersPickedUp: 0,
+                // Per-neighborhood passengers and bus stops (persist across transitions)
+                savedPassengers: [],
+                savedBusStops: [],
+                initialized: false,
+                // Bus stop spawn tracking (per neighborhood)
+                passengersPickedUpForStops: 0,
                 // Construction state per neighborhood
                 constructionZone: null,
                 constructionPassengerCount: 0,
@@ -292,7 +299,7 @@
                 constructionShowCheckmark: false,
                 constructionCompleted: true,
                 futureConstructionZone: null,
-                passengersUntilConstruction: 7,
+                passengersUntilConstruction: 8,
                 // Traffic state per neighborhood
                 car: null, // { x, y, direction, type: 'red'|'blue', speed }
                 totalPassengersPickedUp: 0 // For car spawn tracking
@@ -347,6 +354,8 @@
         let coinSoundPlaying = false;
         let dingDongPlaying = false;
         let audioInitialized = false;
+        let twinkleSoundPlaying = false;
+        let honkSoundPlaying = false;
 
         function initAudio() {
             // Create AudioContext if it doesn't exist
@@ -510,6 +519,106 @@
             }, 400);
         }
 
+        function playTwinkleSound() {
+            if (!audioContext) {
+                initAudio();
+                return;
+            }
+            if (twinkleSoundPlaying) return;
+
+            if (audioContext.state === 'suspended') {
+                audioContext.resume().then(() => {
+                    doPlayTwinkleSound();
+                });
+                return;
+            }
+
+            doPlayTwinkleSound();
+        }
+
+        function doPlayTwinkleSound() {
+            if (!audioContext || twinkleSoundPlaying) return;
+            twinkleSoundPlaying = true;
+
+            try {
+                // Magical ascending twinkle: C6, E6, G6, C7
+                const notes = [1047, 1319, 1568, 2093];
+                notes.forEach((freq, i) => {
+                    const osc = audioContext.createOscillator();
+                    const gain = audioContext.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioContext.destination);
+                    osc.type = 'sine';
+                    const startTime = audioContext.currentTime + i * 0.08;
+                    osc.frequency.setValueAtTime(freq, startTime);
+                    gain.gain.setValueAtTime(0, startTime);
+                    gain.gain.linearRampToValueAtTime(0.25, startTime + 0.02);
+                    gain.gain.linearRampToValueAtTime(0, startTime + 0.15);
+                    osc.start(startTime);
+                    osc.stop(startTime + 0.15);
+                });
+            } catch (e) {
+                console.warn('Twinkle sound error:', e);
+            }
+
+            setTimeout(() => {
+                twinkleSoundPlaying = false;
+            }, 400);
+        }
+
+        function playHonkSound() {
+            if (!audioContext) {
+                initAudio();
+                return;
+            }
+            if (honkSoundPlaying) return;
+
+            if (audioContext.state === 'suspended') {
+                audioContext.resume().then(() => {
+                    doPlayHonkSound();
+                });
+                return;
+            }
+
+            doPlayHonkSound();
+        }
+
+        function doPlayHonkSound() {
+            if (!audioContext || honkSoundPlaying) return;
+            honkSoundPlaying = true;
+
+            try {
+                // Car horn: two dissonant square wave tones
+                const osc1 = audioContext.createOscillator();
+                const osc2 = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(audioContext.destination);
+
+                osc1.type = 'square';
+                osc2.type = 'square';
+                osc1.frequency.setValueAtTime(440, audioContext.currentTime); // A4
+                osc2.frequency.setValueAtTime(370, audioContext.currentTime); // F#4
+
+                gain.gain.setValueAtTime(0, audioContext.currentTime);
+                gain.gain.linearRampToValueAtTime(0.15, audioContext.currentTime + 0.02);
+                gain.gain.setValueAtTime(0.15, audioContext.currentTime + 0.15);
+                gain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
+
+                osc1.start(audioContext.currentTime);
+                osc1.stop(audioContext.currentTime + 0.3);
+                osc2.start(audioContext.currentTime);
+                osc2.stop(audioContext.currentTime + 0.3);
+            } catch (e) {
+                console.warn('Honk sound error:', e);
+            }
+
+            setTimeout(() => {
+                honkSoundPlaying = false;
+            }, 300);
+        }
+
         // Touch controls
         let touchStartX = 0;
         let touchStartY = 0;
@@ -616,21 +725,23 @@
             busStops = [];
             gameRunning = true;
             passengersPickedUp = 0;
-            gameSpeed = 150;
+            globalPassengersPickedUp = 0;
+            gameSpeed = 188; // 25% slower than original 150ms
 
             // Reset neighborhood state - start in Downtown (center)
             currentNeighborhoodX = 1;
             currentNeighborhoodY = 1;
             initAllNeighborhoodStates();
 
-            // Mark starting neighborhood as visited
-            getCurrentNeighborhoodState().visited = true;
+            // Mark starting neighborhood as visited and initialized
+            const startState = getCurrentNeighborhoodState();
+            startState.visited = true;
+            startState.initialized = true;
 
             updateNeighborhoodDisplay();
 
-            // Spawn 3-4 passengers initially
-            const initialPassengers = 3 + Math.floor(Math.random() * 2);
-            for (let i = 0; i < initialPassengers; i++) {
+            // Spawn exactly 3 passengers initially
+            for (let i = 0; i < 3; i++) {
                 spawnPassenger();
             }
 
@@ -767,7 +878,7 @@
                         state.constructionFading = false;
                         state.constructionFadeOpacity = 1;
                         state.constructionCompleted = true;
-                        state.passengersUntilConstruction = 7; // Reset countdown for next construction
+                        state.passengersUntilConstruction = 8; // Reset countdown for next construction
                     }
                 }, 50);
             }, 500);
@@ -820,6 +931,7 @@
             }
 
             state.car = car;
+            playHonkSound();
         }
 
         function updateAllCars() {
@@ -845,10 +957,10 @@
         }
         
         function spawnBusStop() {
-            // Calculate max stops: base 5 + 1 additional for every 250 points
-            const maxStops = 5 + Math.floor(score / 250);
-            // Only spawn if 5 passengers picked up, bus is long enough, and under max stops
-            if (passengersPickedUp >= 5 && bus.length > 3 && busStops.length < maxStops) {
+            const state = getCurrentNeighborhoodState();
+            const maxStops = 5; // Max 5 stops per neighborhood
+            // Spawn after 3 passengers picked up in this neighborhood, bus is long enough, under max
+            if (state.passengersPickedUpForStops >= 3 && bus.length > 3 && busStops.length < maxStops) {
                 let newStop;
                 let attempts = 0;
                 do {
@@ -866,7 +978,7 @@
 
                 if (attempts < 100) {
                     busStops.push(newStop);
-                    passengersPickedUp = 0; // Reset counter after spawning stop
+                    state.passengersPickedUpForStops = 0; // Reset per-neighborhood counter
                 }
             }
         }
@@ -922,6 +1034,12 @@
             // If we transitioned to a NEW neighborhood, preserve bus length
             // Recreate bus segments trailing behind the head from the entry edge
             if (transitionedNeighborhood) {
+                // Save old neighborhood's passengers and bus stops
+                const oldKey = `${prevNeighborhoodX},${prevNeighborhoodY}`;
+                const oldState = getNeighborhoodStateByKey(oldKey);
+                oldState.savedPassengers = [...passengers];
+                oldState.savedBusStops = [...busStops];
+
                 const newNeighborhoodKey = `${currentNeighborhoodX},${currentNeighborhoodY}`;
                 const newState = getNeighborhoodStateByKey(newNeighborhoodKey);
                 newState.visited = true;
@@ -940,15 +1058,23 @@
                     bus.push({ x: trailX, y: trailY });
                 }
 
-                // Spawn new passengers in the new neighborhood
-                passengers = [];
-                const initialPassengers = 3 + Math.floor(Math.random() * 2);
-                for (let i = 0; i < initialPassengers; i++) {
-                    spawnPassenger();
+                // Restore or initialize passengers and bus stops for new neighborhood
+                if (newState.initialized) {
+                    passengers = [...newState.savedPassengers];
+                    busStops = [...newState.savedBusStops];
+                } else {
+                    passengers = [];
+                    busStops = [];
+                    for (let i = 0; i < 3; i++) {
+                        spawnPassenger();
+                    }
+                    newState.initialized = true;
                 }
 
-                // Clear bus stops for the new neighborhood
-                busStops = [];
+                // Ensure minimum 3 passengers per neighborhood
+                while (passengers.length < 3) {
+                    spawnPassenger();
+                }
 
                 updateNeighborhoodDisplay();
                 draw();
@@ -985,7 +1111,7 @@
                     head.y >= landmarkPos.y && head.y < landmarkPos.y + 2) {
                     state.landmarkCollected = true;
                     score += 200;
-                    playCoinSound();
+                    playTwinkleSound();
                 }
             }
 
@@ -993,14 +1119,15 @@
             let pickedUp = false;
             passengers = passengers.filter(passenger => {
                 if (passenger.x === head.x && passenger.y === head.y) {
-                    const oldScore = score;
                     score += 10;
                     pickedUp = true;
                     passengersPickedUp++;
+                    globalPassengersPickedUp++;
 
                     // Track neighborhood-specific passenger count for landmark respawn and car spawn
                     state.passengersPickedUp++;
                     state.totalPassengersPickedUp++;
+                    state.passengersPickedUpForStops++;
 
                     // Check if landmark should respawn (10 passengers in this neighborhood after collection)
                     if (state.landmarkCollected && state.passengersPickedUp >= 10) {
@@ -1021,8 +1148,8 @@
                         }
                     }
 
-                    // Speed up every 100 points
-                    if (Math.floor(score / 100) > Math.floor(oldScore / 100)) {
+                    // Speed up every 10 passengers picked up (global count)
+                    if (globalPassengersPickedUp % 10 === 0) {
                         gameSpeed = Math.max(50, gameSpeed - 15); // Don't go faster than 50ms
                         clearInterval(gameLoop);
                         gameLoop = setInterval(update, gameSpeed);
