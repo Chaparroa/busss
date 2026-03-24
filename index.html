@@ -160,6 +160,21 @@
             background: #c75509;
         }
 
+        #muteBtn {
+            background: none;
+            border: 2px solid #E16710;
+            color: #E16710;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 4px 10px;
+            font-family: 'Courier New', monospace;
+            line-height: 1;
+        }
+        #muteBtn:active {
+            background: #E16710;
+            color: #000;
+        }
+
         @keyframes pulse {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.05); }
@@ -181,6 +196,7 @@
     <div id="gameContainer">
         <div id="header">
             <div id="title">BUSSS</div>
+            <button id="muteBtn" title="Toggle Music">♪</button>
             <div id="score">SCORE: 0</div>
         </div>
         <canvas id="canvas"></canvas>
@@ -356,6 +372,114 @@
         let audioInitialized = false;
         let twinkleSoundPlaying = false;
         let honkSoundPlaying = false;
+
+        // --- Chiptune Music System ---
+        let musicEnabled = true;
+        let musicBpm = 120;
+        let musicScheduler = null;
+        let melodyIndex = 0;
+        let bassIndex = 0;
+        let nextMelodyTime = 0;
+        let nextBassTime = 0;
+
+        const MUSIC_NOTES = {
+            'C3':130.81,'D3':146.83,'E3':164.81,'F3':174.61,'G3':196.00,'A3':220.00,
+            'C4':261.63,'D4':293.66,'E4':329.63,'F4':349.23,'G4':392.00,'A4':440.00,'B4':493.88,
+            'C5':523.25,'D5':587.33,'E5':659.25,'F5':698.46,'G5':783.99,'A5':880.00,
+            'R':0
+        };
+
+        // Melody: [noteName, durationInBeats]. 0.5=eighth note, 1=quarter, 2=half
+        const MELODY_SEQ = [
+            // Bar 1
+            ['E5',0.5],['E5',0.5],['D5',0.5],['C5',0.5],['G4',0.5],['R',0.5],['E5',0.5],['G5',0.5],
+            // Bar 2
+            ['A5',1],['R',0.5],['G5',0.5],['E5',0.5],['C5',0.5],['D5',0.5],['E5',0.5],
+            // Bar 3
+            ['C5',1],['R',0.5],['E5',0.5],['G5',0.5],['A5',0.5],['G5',0.5],['E5',0.5],
+            // Bar 4
+            ['C5',0.5],['D5',0.5],['E5',1],['G4',2],
+            // Bar 5
+            ['F5',0.5],['F5',0.5],['E5',0.5],['D5',0.5],['C5',0.5],['R',0.5],['D5',0.5],['E5',0.5],
+            // Bar 6
+            ['F5',1],['G5',0.5],['A5',0.5],['G5',0.5],['F5',0.5],['E5',0.5],['D5',0.5],
+            // Bar 7
+            ['C5',0.5],['E5',0.5],['G5',1],['A5',0.5],['G5',0.5],['E5',0.5],['C5',0.5],
+            // Bar 8
+            ['D5',0.5],['E5',0.5],['D5',0.5],['C5',0.5],['G4',2],
+        ];
+
+        // Bassline: quarter notes (32 total = 8 bars, synced with melody)
+        const BASS_SEQ = [
+            ['C3',1],['G3',1],['A3',1],['F3',1],
+            ['C3',1],['G3',1],['F3',1],['G3',1],
+            ['C3',1],['E3',1],['G3',1],['A3',1],
+            ['F3',1],['F3',1],['G3',1],['G3',1],
+            ['F3',1],['F3',1],['C3',1],['C3',1],
+            ['G3',1],['G3',1],['C3',1],['E3',1],
+            ['A3',1],['A3',1],['E3',1],['E3',1],
+            ['G3',1],['G3',1],['C3',1],['C3',1],
+        ];
+
+        function musicBeatDuration() {
+            return 60 / musicBpm;
+        }
+
+        function scheduleChipNote(freq, startTime, durationBeats, type, volume) {
+            if (!audioContext || freq === 0) return;
+            const dur = durationBeats * musicBeatDuration();
+            const osc = audioContext.createOscillator();
+            const gain = audioContext.createGain();
+            osc.type = type;
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(volume, startTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, startTime + dur * 0.85);
+            osc.connect(gain);
+            gain.connect(audioContext.destination);
+            osc.start(startTime);
+            osc.stop(startTime + dur);
+        }
+
+        function scheduleMusicAhead() {
+            if (!audioContext || !musicEnabled) return;
+            const until = audioContext.currentTime + 0.15;
+
+            while (nextMelodyTime < until) {
+                const [name, dur] = MELODY_SEQ[melodyIndex];
+                scheduleChipNote(MUSIC_NOTES[name], nextMelodyTime, dur, 'square', 0.1);
+                nextMelodyTime += dur * musicBeatDuration();
+                melodyIndex = (melodyIndex + 1) % MELODY_SEQ.length;
+            }
+
+            while (nextBassTime < until) {
+                const [name, dur] = BASS_SEQ[bassIndex];
+                scheduleChipNote(MUSIC_NOTES[name], nextBassTime, dur, 'triangle', 0.18);
+                nextBassTime += dur * musicBeatDuration();
+                bassIndex = (bassIndex + 1) % BASS_SEQ.length;
+            }
+        }
+
+        function startMusic() {
+            if (!audioContext || !musicEnabled) return;
+            stopMusic();
+            melodyIndex = 0;
+            bassIndex = 0;
+            nextMelodyTime = audioContext.currentTime + 0.1;
+            nextBassTime = audioContext.currentTime + 0.1;
+            musicScheduler = setInterval(scheduleMusicAhead, 25);
+        }
+
+        function stopMusic() {
+            if (musicScheduler) {
+                clearInterval(musicScheduler);
+                musicScheduler = null;
+            }
+        }
+
+        function updateMusicTempo() {
+            // Map gameSpeed 188ms→50ms to 120→190 BPM
+            musicBpm = Math.round(120 + (188 - gameSpeed) / 138 * 70);
+        }
 
         function initAudio() {
             // Create AudioContext if it doesn't exist
@@ -750,6 +874,8 @@
 
             if (gameLoop) clearInterval(gameLoop);
             gameLoop = setInterval(update, gameSpeed);
+            musicBpm = 120;
+            startMusic();
         }
 
         function updateNeighborhoodDisplay() {
@@ -1153,6 +1279,7 @@
                         gameSpeed = Math.max(50, gameSpeed - 15); // Don't go faster than 50ms
                         clearInterval(gameLoop);
                         gameLoop = setInterval(update, gameSpeed);
+                        updateMusicTempo();
                     }
 
                     return false;
@@ -1495,6 +1622,7 @@
         function endGame() {
             gameRunning = false;
             clearInterval(gameLoop);
+            stopMusic();
             
             // Save high scores
             let highScores = JSON.parse(localStorage.getItem('metroHighScores') || '[]');
@@ -1538,6 +1666,16 @@
             document.getElementById('startScreen').style.display = 'none';
             // Start the game
             initGame();
+        });
+
+        document.getElementById('muteBtn').addEventListener('click', function() {
+            musicEnabled = !musicEnabled;
+            this.textContent = musicEnabled ? '♪' : '♩';
+            if (musicEnabled && gameRunning) {
+                startMusic();
+            } else {
+                stopMusic();
+            }
         });
 
         // Initialize neighborhood states and draw initial state without starting game loop
