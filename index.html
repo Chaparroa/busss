@@ -391,6 +391,7 @@
 
         // Melody: [noteName, durationInBeats]. 0.5=eighth note, 1=quarter, 2=half
         const MELODY_SEQ = [
+            // === A SECTION (bars 1-8) ===
             // Bar 1
             ['E5',0.5],['E5',0.5],['D5',0.5],['C5',0.5],['G4',0.5],['R',0.5],['E5',0.5],['G5',0.5],
             // Bar 2
@@ -407,10 +408,28 @@
             ['C5',0.5],['E5',0.5],['G5',1],['A5',0.5],['G5',0.5],['E5',0.5],['C5',0.5],
             // Bar 8
             ['D5',0.5],['E5',0.5],['D5',0.5],['C5',0.5],['G4',2],
+            // === B SECTION (bars 9-16) — arpeggiated, minor feel, builds back home ===
+            // Bar 9 - ascending arpeggios
+            ['A4',0.5],['C5',0.5],['E5',0.5],['G5',0.5],['F5',0.5],['D5',0.5],['B4',0.5],['G4',0.5],
+            // Bar 10
+            ['A4',0.5],['C5',0.5],['E5',0.5],['A5',0.5],['G5',1],['E5',1],
+            // Bar 11 - descending run
+            ['F5',0.5],['A5',0.5],['G5',0.5],['F5',0.5],['E5',0.5],['D5',0.5],['C5',0.5],['B4',0.5],
+            // Bar 12 - breathe
+            ['C5',1],['G4',1],['A4',2],
+            // Bar 13 - push
+            ['E5',0.5],['G5',0.5],['A5',0.5],['G5',0.5],['F5',0.5],['E5',0.5],['D5',0.5],['C5',0.5],
+            // Bar 14 - step down
+            ['D5',0.5],['F5',0.5],['E5',0.5],['D5',0.5],['C5',0.5],['B4',0.5],['A4',0.5],['G4',0.5],
+            // Bar 15 - echo of bar 1 to signal the return
+            ['E5',0.5],['E5',0.5],['D5',0.5],['C5',0.5],['G4',0.5],['R',0.5],['E5',0.5],['G5',0.5],
+            // Bar 16 - resolve home
+            ['A5',0.5],['G5',0.5],['E5',0.5],['C5',0.5],['G4',2],
         ];
 
-        // Bassline: quarter notes (32 total = 8 bars, synced with melody)
+        // Bassline: quarter notes (64 total = 16 bars, synced with melody)
         const BASS_SEQ = [
+            // A section
             ['C3',1],['G3',1],['A3',1],['F3',1],
             ['C3',1],['G3',1],['F3',1],['G3',1],
             ['C3',1],['E3',1],['G3',1],['A3',1],
@@ -419,6 +438,15 @@
             ['G3',1],['G3',1],['C3',1],['E3',1],
             ['A3',1],['A3',1],['E3',1],['E3',1],
             ['G3',1],['G3',1],['C3',1],['C3',1],
+            // B section
+            ['A3',1],['A3',1],['E3',1],['E3',1],
+            ['A3',1],['C4',1],['E3',1],['A3',1],
+            ['F3',1],['F3',1],['C3',1],['G3',1],
+            ['C3',1],['G3',1],['A3',1],['A3',1],
+            ['F3',1],['F3',1],['G3',1],['G3',1],
+            ['D3',1],['D3',1],['G3',1],['G3',1],
+            ['C3',1],['G3',1],['A3',1],['F3',1],
+            ['C3',2],['G3',1],['C3',1],
         ];
 
         function musicBeatDuration() {
@@ -474,6 +502,46 @@
                 clearInterval(musicScheduler);
                 musicScheduler = null;
             }
+        }
+
+        function playCrashSound() {
+            if (!audioContext) return;
+            const now = audioContext.currentTime;
+
+            // Impact: detuned sawtooth bursts that pitch-drop like a crunch
+            [1, 1.5, 0.75, 2].forEach((mult, i) => {
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(180 * mult, now + i * 0.025);
+                osc.frequency.exponentialRampToValueAtTime(40, now + 0.25 + i * 0.025);
+                gain.gain.setValueAtTime(0.18, now + i * 0.025);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3 + i * 0.025);
+                osc.connect(gain);
+                gain.connect(audioContext.destination);
+                osc.start(now + i * 0.025);
+                osc.stop(now + 0.35);
+            });
+
+            // Classic "wah wah wah waaah" losing jingle: G4 E4 C4 ... G3 long
+            const jingle = [
+                [392.00, 0.30, 0.18],   // G4
+                [329.63, 0.55, 0.18],   // E4
+                [261.63, 0.80, 0.18],   // C4
+                [196.00, 1.10, 0.55],   // G3 — long, fades out
+            ];
+            jingle.forEach(([freq, start, dur]) => {
+                const osc = audioContext.createOscillator();
+                const gain = audioContext.createGain();
+                osc.type = 'square';
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(0.15, now + start);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
+                osc.connect(gain);
+                gain.connect(audioContext.destination);
+                osc.start(now + start);
+                osc.stop(now + start + dur + 0.05);
+            });
         }
 
         function updateMusicTempo() {
@@ -1623,7 +1691,8 @@
             gameRunning = false;
             clearInterval(gameLoop);
             stopMusic();
-            
+            playCrashSound();
+
             // Save high scores
             let highScores = JSON.parse(localStorage.getItem('metroHighScores') || '[]');
             highScores.push(score);
