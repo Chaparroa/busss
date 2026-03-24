@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Busss - The Game</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -17,7 +20,7 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            font-family: 'Courier New', monospace;
+            font-family: 'Orbitron', 'Courier New', monospace;
             color: #fff;
             touch-action: none;
         }
@@ -39,16 +42,19 @@
         }
         
         #title {
-            font-size: 36px;
-            font-weight: bold;
+            font-size: 28px;
+            font-weight: 900;
             color: #E16710;
             text-align: left;
+            letter-spacing: 0.05em;
         }
-        
+
         #score {
-            font-size: 20px;
+            font-size: 15px;
+            font-weight: 700;
             color: #E16710;
             text-align: right;
+            letter-spacing: 0.03em;
         }
         
         #canvas {
@@ -74,7 +80,9 @@
         
         #gameOver h1 {
             color: #E16710;
-            font-size: 36px;
+            font-size: 28px;
+            font-weight: 900;
+            letter-spacing: 0.08em;
             margin-bottom: 20px;
         }
         
@@ -85,13 +93,14 @@
         
         #restartBtn {
             margin-top: 20px;
-            padding: 15px 30px;
-            font-size: 20px;
+            padding: 14px 28px;
+            font-size: 15px;
+            letter-spacing: 0.08em;
             background: #E16710;
             color: #000;
             border: none;
             cursor: pointer;
-            font-family: 'Courier New', monospace;
+            font-family: 'Orbitron', 'Courier New', monospace;
             font-weight: bold;
         }
         
@@ -144,13 +153,14 @@
 
         #tapToStart {
             margin-top: 15px;
-            padding: 20px 50px;
-            font-size: 28px;
+            padding: 18px 40px;
+            font-size: 20px;
+            letter-spacing: 0.1em;
             background: #E16710;
             color: #000;
             border: none;
             cursor: pointer;
-            font-family: 'Courier New', monospace;
+            font-family: 'Orbitron', 'Courier New', monospace;
             font-weight: bold;
             border-radius: 8px;
             animation: pulse 1.5s ease-in-out infinite;
@@ -167,7 +177,7 @@
             font-size: 16px;
             cursor: pointer;
             padding: 4px 10px;
-            font-family: 'Courier New', monospace;
+            font-family: 'Orbitron', 'Courier New', monospace;
             line-height: 1;
         }
         #muteBtn:active {
@@ -1456,20 +1466,20 @@
             ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
             ctx.textBaseline = 'middle';
 
-            // Left arrow - arrow LEFT of the neighborhood name (← [Name])
+            // Left label — ↑ in text coords becomes ← on screen after -90° rotation
             ctx.save();
             ctx.translate(14, canvasHeight / 2);
             ctx.rotate(-Math.PI / 2);
             ctx.textAlign = 'center';
-            ctx.fillText('← ' + getNeighborName(-1, 0), 0, 0);
+            ctx.fillText('↑ ' + getNeighborName(-1, 0), 0, 0);
             ctx.restore();
 
-            // Right arrow - arrow RIGHT of the neighborhood name ([Name] →)
+            // Right label — ↑ in text coords becomes → on screen after +90° rotation
             ctx.save();
             ctx.translate(canvasWidth - 14, canvasHeight / 2);
             ctx.rotate(Math.PI / 2);
             ctx.textAlign = 'center';
-            ctx.fillText(getNeighborName(1, 0) + ' →', 0, 0);
+            ctx.fillText(getNeighborName(1, 0) + ' ↑', 0, 0);
             ctx.restore();
 
             // Top arrow - arrow ABOVE the neighborhood name
