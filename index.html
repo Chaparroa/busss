@@ -154,6 +154,10 @@
             text-transform: none !important;
         }
 
+        #emojiInput.is-default {
+            filter: opacity(0.35);
+        }
+
         .form-btns {
             display: flex;
             gap: 8px;
@@ -350,7 +354,7 @@
                     <label>NAME</label>
                 </div>
                 <div class="score-field">
-                    <input id="emojiInput" type="text" placeholder="🚌" autocomplete="off">
+                    <input id="emojiInput" type="text" placeholder="···" autocomplete="off">
                     <label>EMOJI</label>
                 </div>
                 <div class="score-field">
@@ -1952,7 +1956,9 @@
 
             // Reset form
             document.getElementById('initialsInput').value = '';
-            document.getElementById('emojiInput').value = '';
+            const emojiInput = document.getElementById('emojiInput');
+            emojiInput.value = '🚌';
+            emojiInput.classList.add('is-default');
             document.getElementById('cityInput').value = '';
             document.getElementById('scoreForm').style.display = 'block';
             document.getElementById('leaderboard').style.display = 'none';
@@ -2002,7 +2008,11 @@
         document.getElementById('cityInput').addEventListener('input', function() {
             this.value = this.value.replace(/[^A-Za-z]/g, '').toUpperCase();
         });
+        document.getElementById('emojiInput').addEventListener('focus', function() {
+            this.select();
+        });
         document.getElementById('emojiInput').addEventListener('input', function() {
+            this.classList.remove('is-default');
             this.value = extractEmoji(this.value) || '';
         });
         document.getElementById('submitScoreBtn').addEventListener('click', () => handleScoreSubmit(false));
