@@ -82,22 +82,140 @@
             transform: translate(-50%, -50%);
             background: #000;
             border: 4px solid #E16710;
-            padding: 30px;
+            padding: 24px 20px;
             text-align: center;
+            width: min(92vw, 340px);
+            max-height: 88svh;
+            overflow-y: auto;
+            box-sizing: border-box;
         }
-        
+
         #gameOver h1 {
             color: #E16710;
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 900;
             letter-spacing: 0.08em;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
-        
+
         #gameOver p {
-            font-size: 20px;
-            margin: 10px 0;
+            font-size: 16px;
+            margin: 6px 0;
         }
+
+        #scoreForm p.form-label {
+            font-size: 11px;
+            color: #888;
+            margin: 10px 0 8px;
+            letter-spacing: 0.05em;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 4px;
+        }
+
+        .score-field {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .score-field label {
+            font-size: 9px;
+            color: #666;
+            letter-spacing: 0.08em;
+        }
+
+        .score-field input {
+            background: #111;
+            border: 2px solid #E16710;
+            color: #E16710;
+            font-family: 'Orbitron', 'Courier New', monospace;
+            font-size: 15px;
+            text-align: center;
+            padding: 8px 4px;
+            width: 68px;
+            text-transform: uppercase;
+            outline: none;
+        }
+
+        .score-field input:focus {
+            border-color: #fff;
+            color: #fff;
+        }
+
+        #emojiInput {
+            font-size: 22px !important;
+            width: 54px !important;
+            text-transform: none !important;
+        }
+
+        .form-btns {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 14px;
+        }
+
+        #submitScoreBtn {
+            padding: 10px 18px;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            background: #E16710;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-family: 'Orbitron', 'Courier New', monospace;
+        }
+
+        #skipScoreBtn {
+            padding: 10px 14px;
+            font-size: 13px;
+            letter-spacing: 0.06em;
+            background: #222;
+            color: #888;
+            border: 2px solid #333;
+            cursor: pointer;
+            font-family: 'Orbitron', 'Courier New', monospace;
+        }
+
+        #leaderboard {
+            margin: 10px 0 4px;
+        }
+
+        #leaderboard h3 {
+            font-size: 11px;
+            color: #888;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+        }
+
+        .lb-row {
+            display: grid;
+            grid-template-columns: 18px 1fr 24px 40px 36px;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 2px;
+            border-bottom: 1px solid #1a1a1a;
+            font-size: 12px;
+            color: #ccc;
+        }
+
+        .lb-row.lb-me {
+            color: #E16710;
+            border-bottom-color: #2a1a00;
+        }
+
+        .lb-rank { color: #555; font-size: 10px; }
+        .lb-score { font-weight: 700; text-align: right; }
+        .lb-emoji { text-align: center; font-size: 16px; }
+        .lb-name { text-align: center; letter-spacing: 0.05em; }
+        .lb-city { text-align: center; color: #666; font-size: 10px; letter-spacing: 0.05em; }
         
         #restartBtn {
             margin-top: 20px;
@@ -223,7 +341,34 @@
     <div id="gameOver">
         <h1>GAME OVER</h1>
         <p id="finalScore"></p>
-        <div class="high-scores" id="highScores"></div>
+
+        <div id="scoreForm">
+            <p class="form-label">POST YOUR SCORE</p>
+            <div class="form-row">
+                <div class="score-field">
+                    <input id="initialsInput" type="text" maxlength="3" placeholder="AAA" autocomplete="off" autocorrect="off" spellcheck="false">
+                    <label>NAME</label>
+                </div>
+                <div class="score-field">
+                    <input id="emojiInput" type="text" placeholder="🚌" autocomplete="off">
+                    <label>EMOJI</label>
+                </div>
+                <div class="score-field">
+                    <input id="cityInput" type="text" maxlength="3" placeholder="LAX" autocomplete="off" autocorrect="off" spellcheck="false">
+                    <label>CITY</label>
+                </div>
+            </div>
+            <div class="form-btns">
+                <button id="submitScoreBtn">SUBMIT</button>
+                <button id="skipScoreBtn">SKIP</button>
+            </div>
+        </div>
+
+        <div id="leaderboard" style="display:none;">
+            <h3>GLOBAL TOP 10</h3>
+            <div id="leaderboardList"></div>
+        </div>
+
         <button id="restartBtn">PLAY AGAIN</button>
     </div>
 
@@ -563,6 +708,100 @@
         function updateMusicTempo() {
             // Map gameSpeed 188ms→50ms to 120→190 BPM
             musicBpm = Math.round(120 + (188 - gameSpeed) / 138 * 70);
+        }
+
+        // --- Supabase Leaderboard ---
+        const SB_URL = 'https://xnxgiuziktbqubpecqru.supabase.co';
+        const SB_KEY = 'sb_publishable_JXuFRZIlAj-qyQbStKsSaA_o6SVO44l';
+
+        function extractEmoji(str) {
+            if (!str || !str.trim()) return '';
+            try {
+                const segs = [...new Intl.Segmenter().segment(str.trim())];
+                return segs.length > 0 ? segs[0].segment : '';
+            } catch (e) {
+                return str.trim().slice(0, 2);
+            }
+        }
+
+        async function submitScore(scoreVal, initials, emoji, city) {
+            const body = {
+                score: scoreVal,
+                initials: initials.toUpperCase().slice(0, 3),
+                emoji: emoji || null,
+                city: city ? city.toUpperCase().slice(0, 3) : null
+            };
+            const res = await fetch(`${SB_URL}/rest/v1/scores`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': SB_KEY,
+                    'Authorization': `Bearer ${SB_KEY}`,
+                    'Prefer': 'return=minimal'
+                },
+                body: JSON.stringify(body)
+            });
+            if (!res.ok) throw new Error(`Submit failed: ${res.status}`);
+        }
+
+        async function fetchLeaderboard() {
+            const res = await fetch(
+                `${SB_URL}/rest/v1/scores?select=score,initials,emoji,city&order=score.desc&limit=10`,
+                { headers: { 'apikey': SB_KEY, 'Authorization': `Bearer ${SB_KEY}` } }
+            );
+            if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+            return res.json();
+        }
+
+        function renderLeaderboard(entries, myScore) {
+            const list = document.getElementById('leaderboardList');
+            if (!entries || entries.length === 0) {
+                list.innerHTML = '<p style="color:#666;font-size:12px;padding:10px 0">NO SCORES YET — YOU\'RE FIRST!</p>';
+                return;
+            }
+            list.innerHTML = entries.map((e, i) => {
+                const isMe = e.score === myScore;
+                return `<div class="lb-row${isMe ? ' lb-me' : ''}">
+                    <span class="lb-rank">${i + 1}</span>
+                    <span class="lb-score">${e.score.toLocaleString()}</span>
+                    <span class="lb-emoji">${e.emoji || '·'}</span>
+                    <span class="lb-name">${e.initials || '···'}</span>
+                    <span class="lb-city">${e.city || '···'}</span>
+                </div>`;
+            }).join('');
+        }
+
+        async function handleScoreSubmit(skip) {
+            const currentScore = score;
+            const form = document.getElementById('scoreForm');
+            const lb = document.getElementById('leaderboard');
+            const lbList = document.getElementById('leaderboardList');
+
+            if (!skip) {
+                const initials = document.getElementById('initialsInput').value.trim();
+                if (initials.length === 0) {
+                    document.getElementById('initialsInput').focus();
+                    return;
+                }
+                const emoji = extractEmoji(document.getElementById('emojiInput').value);
+                const city = document.getElementById('cityInput').value.trim();
+                try {
+                    await submitScore(currentScore, initials, emoji, city);
+                } catch (e) {
+                    console.warn('Score submit failed:', e);
+                }
+            }
+
+            form.style.display = 'none';
+            lb.style.display = 'block';
+            lbList.innerHTML = '<p style="color:#444;font-size:11px;padding:8px 0;letter-spacing:0.05em">LOADING...</p>';
+
+            try {
+                const entries = await fetchLeaderboard();
+                renderLeaderboard(entries, currentScore);
+            } catch (e) {
+                lbList.innerHTML = '<p style="color:#555;font-size:11px;padding:8px 0">LEADERBOARD UNAVAILABLE</p>';
+            }
         }
 
         function initAudio() {
@@ -1709,22 +1948,15 @@
             stopMusic();
             playCrashSound();
 
-            // Save high scores
-            let highScores = JSON.parse(localStorage.getItem('metroHighScores') || '[]');
-            highScores.push(score);
-            highScores.sort((a, b) => b - a);
-            highScores = highScores.slice(0, 3);
-            localStorage.setItem('metroHighScores', JSON.stringify(highScores));
-            
-            // Display game over
-            document.getElementById('finalScore').textContent = `YOUR SCORE: ${score}`;
-            
-            let highScoresHTML = '<h3>TOP SCORES</h3>';
-            highScores.forEach((s, i) => {
-                highScoresHTML += `<p>${i + 1}. ${s}</p>`;
-            });
-            document.getElementById('highScores').innerHTML = highScoresHTML;
-            
+            document.getElementById('finalScore').textContent = `YOUR SCORE: ${score.toLocaleString()}`;
+
+            // Reset form
+            document.getElementById('initialsInput').value = '';
+            document.getElementById('emojiInput').value = '';
+            document.getElementById('cityInput').value = '';
+            document.getElementById('scoreForm').style.display = 'block';
+            document.getElementById('leaderboard').style.display = 'none';
+
             document.getElementById('gameOver').style.display = 'block';
         }
         
@@ -1762,6 +1994,19 @@
                 stopMusic();
             }
         });
+
+        // Score form inputs
+        document.getElementById('initialsInput').addEventListener('input', function() {
+            this.value = this.value.replace(/[^A-Za-z]/g, '').toUpperCase();
+        });
+        document.getElementById('cityInput').addEventListener('input', function() {
+            this.value = this.value.replace(/[^A-Za-z]/g, '').toUpperCase();
+        });
+        document.getElementById('emojiInput').addEventListener('input', function() {
+            this.value = extractEmoji(this.value) || '';
+        });
+        document.getElementById('submitScoreBtn').addEventListener('click', () => handleScoreSubmit(false));
+        document.getElementById('skipScoreBtn').addEventListener('click', () => handleScoreSubmit(true));
 
         // Initialize neighborhood states and draw initial state without starting game loop
         initAllNeighborhoodStates();
