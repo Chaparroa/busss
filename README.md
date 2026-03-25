@@ -17,16 +17,17 @@ BUSSS is designed to help people pass the time while waiting for the bus. Take a
 
 ## Play Now
 
-**[Play BUSSS →](https://chaparroa.github.io/busss)**
+**[Play BUSSS →](https://www.busssgame.com)**
 
 ## Features
 
 - 🎮 Simple swipe controls optimized for mobile
 - 🚌 Retro pixel art LA Metro bus with authentic colors
 - 🚧 Dynamic construction zones that appear and disappear
-- 🏆 Local high scores (top 3 saved on your device)
-- 📱 Portrait mode optimized for phone screens
-- ⚡ Progressive difficulty - speeds up as you score
+- 🎵 Original chiptune soundtrack that speeds up as the game does
+- 🏆 Global leaderboard with initials, emoji, and city
+- 📱 Full-screen on any phone size
+- ⚡ Progressive difficulty — speeds up every 10 passengers
 
 ## Why BUSSS?
 
@@ -36,8 +37,8 @@ This game was created with a simple goal: give bus riders something fun and enga
 
 - Built with vanilla HTML5, CSS, and JavaScript
 - Uses Canvas API for rendering
-- Web Audio API for sound effects
-- LocalStorage for high scores
+- Web Audio API for procedurally generated chiptune music and sound effects
+- Supabase for global leaderboard
 - No frameworks, no dependencies, no build process
 - Single HTML file for maximum simplicity
 
